@@ -1,0 +1,20 @@
+{
+  "name": "@future-diary/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint src --fix"
+  },
+  "dependencies": {
+    "@future-diary/core": "workspace:*",
+    "@future-diary/db": "workspace:*",
+    "@future-diary/vector": "workspace:*",
+    "hono": "^4.8.0",
+    "zod": "^3.24.0"
+  }
+}

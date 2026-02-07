@@ -1,0 +1,201 @@
+# packages/db/src/migrations
+
+`packages/db/src/migrations` は D1 スキーマ変更の SQL 契約を管理する。
+
+- パス: `packages/db/src/migrations/README.md`
+- 状態: Implemented
+- 種別（Profile）: contract
+- 関連:
+  - See: `../README.md`
+- 注意:
+  - migration は順序適用される前提。
+
+<details><summary>目次</summary>
+
+- [役割](#役割)
+- [スコープ](#スコープ)
+- [ローカル開発](#ローカル開発)
+- [ディレクトリ構成](#ディレクトリ構成)
+- [公開インタフェース](#公開インタフェース)
+- [契約と検証](#契約と検証)
+- [設計ノート](#設計ノート)
+- [品質](#品質)
+- [内部](#内部)
+
+</details>
+
+## 役割
+
+- 初期テーブル定義の SQL を提供。
+
+<details><summary>根拠（Evidence）</summary>
+
+- [E1] `packages/db/src/migrations/0001_initial.sql:1`
+- [E2] `packages/db/src/migrations/0001_initial.sql:9`
+</details>
+
+## スコープ
+
+- 対象（In scope）:
+  - `0001_initial.sql`
+- 対象外（Non-goals）:
+  - query layer
+- 委譲（See）:
+  - See: `../README.md`
+- 互換性:
+  - migration番号で管理
+- 依存方向:
+  - 許可:
+    - SQL only
+  - 禁止:
+    - app logic混在
+
+<details><summary>根拠（Evidence）</summary>
+
+- [E1] `packages/db/src/migrations/0001_initial.sql:13`
+</details>
+
+## ローカル開発
+
+- 依存インストール: `make install`
+- 環境変数: wrangler local D1
+- 起動: N/A
+- 確認: `make db-migrate`
+
+<details><summary>根拠（Evidence）</summary>
+
+- [E1] `packages/db/package.json:9`
+</details>
+
+## ディレクトリ構成
+
+```text
+.
+└── packages/db/src/migrations/
+    ├── 0001_initial.sql         # 初期スキーマ
+    └── README.md                # この文書
+```
+
+## 公開インタフェース
+
+### 提供するもの / 提供しないもの
+
+- 提供:
+  - 初期 migration SQL
+- 非提供:
+  - data migration script
+
+### エントリポイント / エクスポート（SSOT）
+
+| 公開シンボル       | 種別         | 定義元             | 目的         | 根拠                                            |
+| ------------------ | ------------ | ------------------ | ------------ | ----------------------------------------------- |
+| `0001_initial.sql` | SQL contract | `0001_initial.sql` | schema初期化 | `packages/db/src/migrations/0001_initial.sql:1` |
+
+### 使い方（必須）
+
+```bash
+bun --cwd packages/db run migrate
+```
+
+### 依存ルール
+
+- 許可する import:
+  - N/A
+- 禁止する import:
+  - N/A
+
+<details><summary>根拠（Evidence）</summary>
+
+- [E1] `packages/db/package.json:9`
+</details>
+
+## 契約と検証
+
+### 契約 SSOT
+
+- `0001_initial.sql`
+
+### 検証入口（CI / ローカル）
+
+- [E1] `bun --cwd packages/db run migrate`
+
+### テスト（根拠として使う場合）
+
+| テストファイル | コマンド                            | 検証内容 | 主要 assertion | 根拠                         |
+| -------------- | ----------------------------------- | -------- | -------------- | ---------------------------- |
+| N/A            | `bun --cwd packages/db run migrate` | SQL適用  | apply success  | `packages/db/package.json:9` |
+
+<details><summary>根拠（Evidence）</summary>
+
+- [E1] `packages/db/src/migrations/0001_initial.sql:19`
+</details>
+
+## 設計ノート
+
+- データ形状:
+  - users, diary_entries table
+- 失敗セマンティクス:
+  - SQL errorで失敗
+- メインフロー:
+  - apply migration
+- I/O 境界:
+  - D1 execute
+- トレードオフ:
+  - 最小テーブルから開始。
+
+```mermaid
+flowchart TD
+  SQL["0001_initial.sql"] -->|"contract"| U["users"]
+  SQL -->|"contract"| D["diary_entries"]
+```
+
+<details><summary>根拠（Evidence）</summary>
+
+- [E1] `packages/db/src/migrations/0001_initial.sql:1`
+- [E2] `packages/db/src/migrations/0001_initial.sql:9`
+</details>
+
+## 品質
+
+- テスト戦略:
+  - migration apply。
+- 主なリスクと対策（3〜7）:
+
+| リスク     | 対策（検証入口）             | 根拠                                             |
+| ---------- | ---------------------------- | ------------------------------------------------ |
+| 重複日付行 | `UNIQUE(user_id, date)` 制約 | `packages/db/src/migrations/0001_initial.sql:19` |
+
+<details><summary>根拠（Evidence）</summary>
+
+- [E1] `packages/db/src/migrations/0001_initial.sql:19`
+</details>
+
+## 内部
+
+<details><summary>品質（関数型プログラミング観点） / OPEN / ISSUE / SUMMARY</summary>
+
+### 品質（関数型プログラミング観点）
+
+| 項目     | 判定 | 理由          | 根拠                                             |
+| -------- | ---- | ------------- | ------------------------------------------------ |
+| 契約指向 | YES  | SQLで制約明示 | `packages/db/src/migrations/0001_initial.sql:13` |
+
+### [OPEN]
+
+- [OPEN][TODO] 追加 migration 設計
+  - 背景: 今後の diary仕様拡張
+  - 現状: 初期版のみ
+  - 受入条件:
+    - 変更ごとに番号付き migration 追加
+  - 根拠:
+    - `packages/db/src/migrations/0001_initial.sql:1`
+
+### [ISSUE]
+
+- なし。
+
+### [SUMMARY]
+
+- migration ディレクトリは schema 契約のSSOT。
+
+</details>

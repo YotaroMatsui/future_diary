@@ -1,0 +1,13 @@
+name = "future-diary-api"
+main = "src/index.ts"
+compatibility_date = "2026-02-07"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "future-diary"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[vectorize]]
+binding = "VECTOR_INDEX"
+index_name = "future-diary-index"

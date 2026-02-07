@@ -1,0 +1,13 @@
+{
+  "name": "@future-diary/db",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "migrate": "wrangler d1 migrations apply future-diary --local",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint src --fix"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@future-diary/jobs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vector:reindex": "bun run src/reindex.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint src --fix"
+  },
+  "dependencies": {
+    "@future-diary/vector": "workspace:*"
+  }
+}
