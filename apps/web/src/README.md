@@ -1,6 +1,6 @@
 # apps/web/src
 
-`apps/web/src` は React 画面の最小実装を保持し、`main.tsx` で起動、`App.tsx` で操作、`api.ts` で通信境界を提供する。
+`apps/web/src` は 未来日記 UI の実装を保持し、`main.tsx` で起動、`App.tsx` で生成/編集/保存/確定/履歴閲覧を操作し、`api.ts` で通信境界、`app.css` でスタイルを提供する。
 
 - パス: `apps/web/src/README.md`
 - 状態: Implemented
@@ -8,7 +8,7 @@
 - 関連:
   - See: `../README.md`
 - 注意:
-  - diary編集UIは未実装。
+  - userId/timezone は localStorage に保存する（認証導入までは入力ベース）。
 
 <details><summary>目次</summary>
 
@@ -26,21 +26,24 @@
 
 ## 役割
 
-- UI root + API client の実装。
+- UI root + diary editor + API client の実装。
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/main.tsx:11`
-- [E2] `apps/web/src/App.tsx:9`
-- [E3] `apps/web/src/api.ts:7`
+- [E1] `apps/web/src/main.tsx:12` — mount。
+- [E2] `apps/web/src/App.tsx:258` — draft auto load。
+- [E3] `apps/web/src/api.ts:51` — fetch boundary。
 </details>
 
 ## スコープ
 
 - 対象（In scope）:
-  - health確認UI
+  - 未来日記（下書き）の生成/編集/保存/確定 UI
+  - 履歴閲覧 UI
+  - 通信境界（fetch client）
+  - スタイル（`app.css`）
 - 対象外（Non-goals）:
-  - diary編集
+  - 認証 UI
 - 委譲（See）:
   - See: `../README.md`
 - 互換性:
@@ -53,7 +56,9 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:2`
+- [E1] `apps/web/src/App.tsx:322`
+- [E2] `apps/web/src/api.ts:104`
+- [E3] `apps/web/src/app.css:26`
 </details>
 
 ## ローカル開発
@@ -76,6 +81,7 @@
     ├── main.tsx                 # bootstrap
     ├── App.tsx                  # view
     ├── api.ts                   # fetch client
+    ├── app.css                  # styling
     └── README.md                # この文書
 ```
 
@@ -84,7 +90,8 @@
 ### 提供するもの / 提供しないもの
 
 - 提供:
-  - `App`, `fetchHealth`
+  - `App`
+  - diary API client（`fetchFutureDiaryDraft` / `saveDiaryEntry` / `confirmDiaryEntry` / `listDiaryEntries`）
 - 非提供:
   - shared UI primitives
 
@@ -92,8 +99,11 @@
 
 | 公開シンボル  | 種別      | 定義元    | 目的           | 根拠                     |
 | ------------- | --------- | --------- | -------------- | ------------------------ |
-| `App`         | component | `App.tsx` | UI root        | `apps/web/src/App.tsx:6` |
-| `fetchHealth` | function  | `api.ts`  | API health取得 | `apps/web/src/api.ts:7`  |
+| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:70` |
+| `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:104` |
+| `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:122` |
+| `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:131` |
+| `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:143` |
 
 ### 使い方（必須）
 
@@ -118,7 +128,11 @@ import { App } from "./App";
 
 ### 契約 SSOT
 
-- `HealthResponse`
+- API response 型:
+  - `FutureDiaryDraftResponse`
+  - `DiaryEntrySaveResponse`
+  - `DiaryEntryConfirmResponse`
+  - `DiaryEntriesListResponse`
 
 ### 検証入口（CI / ローカル）
 
@@ -139,26 +153,40 @@ import { App } from "./App";
 ## 設計ノート
 
 - データ形状:
-  - `HealthResponse`
+  - draft:
+    - request: `{ userId, date, timezone }`
+    - response: `{ ok, draft, meta }`
+  - save:
+    - request: `{ userId, date, body }`
+  - confirm:
+    - request: `{ userId, date }`
+  - list:
+    - request: `{ userId, onOrBeforeDate, limit }`
 - 失敗セマンティクス:
-  - fetch error message
+  - 非200は例外として扱い、UI は toast に表示する。
 - メインフロー:
-  - click -> fetch -> state。
+  - mount -> 当日 draft 生成 -> editor 表示。
+  - edit -> save -> confirm。
+  - list -> history 表示。
 - I/O 境界:
-  - `fetch`
+  - `fetch`（`api.ts`）
+  - localStorage（`App.tsx`）
 - トレードオフ:
-  - 簡素化。
+  - 認証 UI は未導入で、userId 入力を暫定採用。
 
 ```mermaid
 flowchart TD
-  A["App.tsx"] -->|"call"| C["api.ts::fetchHealth"]
-  A -->|"render"| M["message state"]
+  UI["App.tsx"] -->|"call"| CL["api.ts"]
+  CL -->|"boundary(I/O)"| DRAFT["POST /v1/future-diary/draft"]
+  CL -->|"boundary(I/O)"| SAVE["POST /v1/diary/entry/save"]
+  CL -->|"boundary(I/O)"| CONF["POST /v1/diary/entry/confirm"]
+  CL -->|"boundary(I/O)"| LIST["POST /v1/diary/entries/list"]
 ```
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:11`
-- [E2] `apps/web/src/App.tsx:12`
+- [E1] `apps/web/src/App.tsx:248` — auto load。
+- [E2] `apps/web/src/api.ts:51` — JSON POST boundary。
 </details>
 
 ## 品質
@@ -167,13 +195,15 @@ flowchart TD
   - build/typecheck。
 - 主なリスクと対策（3〜7）:
 
-| リスク       | 対策（検証入口） | 根拠                      |
-| ------------ | ---------------- | ------------------------- |
-| 通信失敗時UX | error表示        | `apps/web/src/App.tsx:15` |
+| リスク            | 対策（検証入口） | 根拠                      |
+| ----------------- | ---------------- | ------------------------- |
+| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:162` |
+| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:33` |
+| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:381` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:15`
+- [E1] `apps/web/src/api.ts:67`
 </details>
 
 ## 内部
@@ -184,17 +214,11 @@ flowchart TD
 
 | 項目         | 判定 | 理由                   | 根拠                    |
 | ------------ | ---- | ---------------------- | ----------------------- |
-| 副作用の隔離 | YES  | 通信を `api.ts` に分離 | `apps/web/src/api.ts:7` |
+| 副作用の隔離 | YES  | fetch/localStorage を境界へ分離 | `apps/web/src/api.ts:51` |
 
 ### [OPEN]
 
-- [OPEN][TODO] diary UI 実装
-  - 背景: health check のみ
-  - 現状: 画面不足
-  - 受入条件:
-    - 編集/確定UI追加
-  - 根拠:
-    - `apps/web/src/App.tsx:22`
+- なし。
 
 ### [ISSUE]
 
@@ -202,6 +226,6 @@ flowchart TD
 
 ### [SUMMARY]
 
-- src は最小の接続確認UI。
+- src は 未来日記 UI（生成/編集/保存/確定/履歴）の実装を保持する。
 
 </details>

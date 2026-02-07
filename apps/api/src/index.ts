@@ -7,6 +7,7 @@ import {
 } from "@future-diary/core";
 import { createDiaryRepository, createUserRepository } from "@future-diary/db";
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { z } from "zod";
 import { requestOpenAiStructuredOutputText } from "./openaiResponses";
 
@@ -44,6 +45,17 @@ type WorkerBindings = {
 };
 
 const app = new Hono<{ Bindings: WorkerBindings }>();
+
+app.use(
+  "*",
+  cors({
+    // No auth/cookies yet; allow cross-origin calls from web app (dev: 5173, prod: Pages domain).
+    origin: "*",
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["content-type"],
+    maxAge: 600,
+  }),
+);
 
 const defaultStyleHints = {
   openingPhrases: ["今日は無理をせず、少しずつ整えていく一日にしたい。"],
