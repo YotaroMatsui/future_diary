@@ -32,7 +32,7 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/schema.ts:4`
-- [E2] `packages/db/src/repository.ts:25`
+- [E2] `packages/db/src/repository.ts:26`
 </details>
 
 ## スコープ
@@ -87,6 +87,7 @@
 
 - 提供:
   - `createDiaryRepository`
+  - `createUserRepository`
   - schema interfaces
 - 非提供:
   - DB lifecycle
@@ -95,7 +96,8 @@
 
 | 公開シンボル            | 種別     | 定義元          | 目的   | 根拠                               |
 | ----------------------- | -------- | --------------- | ------ | ---------------------------------- |
-| `createDiaryRepository` | function | `repository.ts` | D1操作 | `packages/db/src/repository.ts:30` |
+| `createDiaryRepository` | function | `repository.ts` | D1操作 | `packages/db/src/repository.ts:32` |
+| `createUserRepository`  | function | `repository.ts` | user upsert | `packages/db/src/repository.ts:71` |
 
 ### 使い方（必須）
 
@@ -158,7 +160,7 @@ flowchart TD
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/repository.ts:2`
-- [E2] `packages/db/src/repository.ts:10`
+- [E2] `packages/db/src/repository.ts:11`
 </details>
 
 ## 品質
@@ -184,7 +186,7 @@ flowchart TD
 
 | 項目         | 判定 | 理由             | 根拠                               |
 | ------------ | ---- | ---------------- | ---------------------------------- |
-| 副作用の隔離 | YES  | repositoryへ限定 | `packages/db/src/repository.ts:30` |
+| 副作用の隔離 | YES  | repositoryへ限定 | `packages/db/src/repository.ts:32` |
 
 ### [OPEN]
 
@@ -194,7 +196,7 @@ flowchart TD
   - 受入条件:
     - Result変換
   - 根拠:
-    - `packages/db/src/repository.ts:32`
+    - `packages/db/src/repository.ts:33`
 
 ### [ISSUE]
 

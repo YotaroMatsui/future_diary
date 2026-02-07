@@ -4,6 +4,7 @@ import type {
   GenerateFutureDiaryInput,
   Result,
   SourceFragment,
+  StyleHints,
 } from "./types";
 
 const normalizeLine = (line: string): string => line.trim().replace(/\s+/g, " ");
@@ -56,5 +57,20 @@ export const buildFutureDiaryDraft = (
       body: bodyParagraphs.join("\n\n"),
       sourceFragmentIds: rankedFragments.map((fragment) => fragment.id),
     },
+  };
+};
+
+export const buildFallbackFutureDiaryDraft = (input: {
+  date: string;
+  styleHints: StyleHints;
+}): FutureDiaryDraft => {
+  const opening = input.styleHints.openingPhrases[0] ?? "今日はこんな一日になりそう。";
+  const closing =
+    input.styleHints.closingPhrases[0] ?? "最後に、今日の気づきを一行だけ残して終える。";
+
+  return {
+    title: `${input.date} の未来日記`,
+    body: [opening, "（ここに今日の出来事を追記する）", closing].join("\n\n"),
+    sourceFragmentIds: [],
   };
 };

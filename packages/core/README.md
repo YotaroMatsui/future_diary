@@ -1,6 +1,6 @@
 # packages/core
 
-`packages/core/src/futureDiary.ts` は未来日記ドラフト生成の純粋関数を提供し、入力データから `Result<FutureDiaryDraft, GenerateFutureDiaryError>` を返す。I/O や外部依存を持たず functional core を維持する。
+`packages/core/src/futureDiary.ts` は未来日記ドラフト生成の純粋関数を提供し、入力データから `Result<FutureDiaryDraft, GenerateFutureDiaryError>` を返す。`packages/core/src/futureDiaryLlm.ts` は外部LLM向けのプロンプト組み立て（pure）と structured output 用 JSON schema を提供する。I/O や外部依存を持たず functional core を維持する。
 
 - パス: `packages/core/README.md`
 - 状態: Implemented
@@ -30,19 +30,25 @@
 
 - ドメイン型（`types.ts`）を定義する。
 - ドラフト生成usecase（`buildFutureDiaryDraft`）を提供する。
+- 外部LLM向け prompt と schema（`buildFutureDiaryDraftLlm*`, `futureDiaryDraftBodyJsonSchema`）を提供する。
 - 期待失敗を `Result` の `ok=false` で返す。
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/core/src/types.ts:3` — `Result` 型。
-- [E2] `packages/core/src/futureDiary.ts:19` — usecase 定義。
-- [E3] `packages/core/src/futureDiary.ts:22` — invalid style error。
-- [E4] `packages/core/src/futureDiary.ts:37` — no source error。
+- [E2] `packages/core/src/futureDiary.ts:20` — usecase 定義。
+- [E3] `packages/core/src/futureDiary.ts:23` — invalid style error。
+- [E4] `packages/core/src/futureDiary.ts:38` — no source error。
+- [E5] `packages/core/src/futureDiaryLlm.ts:20` — system prompt。
+- [E6] `packages/core/src/futureDiaryLlm.ts:33` — user prompt。
+- [E7] `packages/core/src/futureDiaryLlm.ts:7` — structured output schema。
+- [E8] `packages/core/src/futureDiary.ts:51` — `toParagraph` call。
+- [E9] `packages/core/src/futureDiary.ts:12` — `toParagraph` def。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
   - `buildFutureDiaryDraft` -> `toParagraph`:
-    - call: [E5] `packages/core/src/futureDiary.ts:49`
-    - def: [E6] `packages/core/src/futureDiary.ts:11`
+    - call: [E8] `packages/core/src/futureDiary.ts:51`
+    - def: [E9] `packages/core/src/futureDiary.ts:12`
 
 </details>
 
@@ -68,7 +74,7 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/core/src/futureDiary.ts:1` — types import only。
-- [E2] `packages/core/src/futureDiary.ts:51` — data return。
+- [E2] `packages/core/src/futureDiary.ts:53` — data return。
 </details>
 
 ## ローカル開発
@@ -99,6 +105,10 @@
 
 - 提供:
   - `buildFutureDiaryDraft`
+  - `buildFallbackFutureDiaryDraft`
+  - `buildFutureDiaryDraftLlmSystemPrompt`
+  - `buildFutureDiaryDraftLlmUserPrompt`
+  - `futureDiaryDraftBodyJsonSchema`
   - domain type definitions
 - 非提供:
   - persistence/networking
@@ -107,7 +117,11 @@
 
 | 公開シンボル            | 種別      | 定義元               | 目的        | 根拠                                  |
 | ----------------------- | --------- | -------------------- | ----------- | ------------------------------------- |
-| `buildFutureDiaryDraft` | function  | `src/futureDiary.ts` | draft生成   | `packages/core/src/futureDiary.ts:19` |
+| `buildFutureDiaryDraft` | function  | `src/futureDiary.ts` | draft生成   | `packages/core/src/futureDiary.ts:20` |
+| `buildFallbackFutureDiaryDraft` | function | `src/futureDiary.ts` | source無しのfallback | `packages/core/src/futureDiary.ts:63` |
+| `buildFutureDiaryDraftLlmSystemPrompt` | function | `src/futureDiaryLlm.ts` | LLM system prompt | `packages/core/src/futureDiaryLlm.ts:20` |
+| `buildFutureDiaryDraftLlmUserPrompt` | function | `src/futureDiaryLlm.ts` | LLM user prompt | `packages/core/src/futureDiaryLlm.ts:33` |
+| `futureDiaryDraftBodyJsonSchema` | const | `src/futureDiaryLlm.ts` | structured output schema | `packages/core/src/futureDiaryLlm.ts:7` |
 | `Result`                | type      | `src/types.ts`       | 失敗表現    | `packages/core/src/types.ts:3`        |
 | `DiaryEntry`            | interface | `src/types.ts`       | diaryモデル | `packages/core/src/types.ts:35`       |
 
@@ -186,9 +200,9 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/core/src/futureDiary.ts:9`
-- [E2] `packages/core/src/futureDiary.ts:11`
-- [E3] `packages/core/src/futureDiary.ts:21`
+- [E1] `packages/core/src/futureDiary.ts:10`
+- [E2] `packages/core/src/futureDiary.ts:12`
+- [E3] `packages/core/src/futureDiary.ts:20`
 </details>
 
 ## 品質
@@ -199,13 +213,13 @@ flowchart TD
 
 | リスク           | 対策（検証入口）             | 根拠                                  |
 | ---------------- | ---------------------------- | ------------------------------------- |
-| 空入力で壊れる   | `NO_SOURCE` を返す           | `packages/core/src/futureDiary.ts:37` |
-| styleHints誤設定 | `INVALID_STYLE_HINTS` を返す | `packages/core/src/futureDiary.ts:22` |
-| 非決定的出力     | sort + slice で決定化        | `packages/core/src/futureDiary.ts:34` |
+| 空入力で壊れる   | `NO_SOURCE` を返す           | `packages/core/src/futureDiary.ts:38` |
+| styleHints誤設定 | `INVALID_STYLE_HINTS` を返す | `packages/core/src/futureDiary.ts:23` |
+| 非決定的出力     | sort + slice で決定化        | `packages/core/src/futureDiary.ts:35` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/core/src/futureDiary.ts:32`
+- [E1] `packages/core/src/futureDiary.ts:33`
 - [E2] `packages/core/src/futureDiary.test.ts:40`
 </details>
 
@@ -218,11 +232,11 @@ flowchart TD
 
 | 項目       | 判定 | 理由                     | 根拠                                  |
 | ---------- | ---- | ------------------------ | ------------------------------------- |
-| 参照透過性 | YES  | 同一入力で同一出力       | `packages/core/src/futureDiary.ts:19` |
+| 参照透過性 | YES  | 同一入力で同一出力       | `packages/core/src/futureDiary.ts:20` |
 | 純粋性     | YES  | 外部I/Oなし              | `packages/core/src/futureDiary.ts:1`  |
-| 不変性     | YES  | `[...]` でコピーして操作 | `packages/core/src/futureDiary.ts:32` |
+| 不変性     | YES  | `[...]` でコピーして操作 | `packages/core/src/futureDiary.ts:33` |
 | 例外より型 | YES  | `Result` で失敗を表現    | `packages/core/src/types.ts:3`        |
-| 決定性     | YES  | relevance順にソート      | `packages/core/src/futureDiary.ts:34` |
+| 決定性     | YES  | relevance順にソート      | `packages/core/src/futureDiary.ts:35` |
 
 ### [OPEN]
 
@@ -232,7 +246,7 @@ flowchart TD
   - 受入条件:
     - styleHints と retrieval 特徴の反映強化。
   - 根拠:
-    - `packages/core/src/futureDiary.ts:11`
+    - `packages/core/src/futureDiary.ts:12`
 
 ### [ISSUE]
 

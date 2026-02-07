@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildFutureDiaryDraft } from "./futureDiary";
+import { buildFallbackFutureDiaryDraft, buildFutureDiaryDraft } from "./futureDiary";
 
 describe("buildFutureDiaryDraft", () => {
   test("returns draft from ranked source fragments", () => {
@@ -44,5 +44,22 @@ describe("buildFutureDiaryDraft", () => {
         message: "No eligible source fragments were found",
       },
     });
+  });
+});
+
+describe("buildFallbackFutureDiaryDraft", () => {
+  test("returns editable draft even when no source exists", () => {
+    const draft = buildFallbackFutureDiaryDraft({
+      date: "2026-02-07",
+      styleHints: {
+        openingPhrases: [],
+        closingPhrases: [],
+        maxParagraphs: 2,
+      },
+    });
+
+    expect(draft.title).toBe("2026-02-07 の未来日記");
+    expect(draft.sourceFragmentIds).toEqual([]);
+    expect(draft.body).toContain("（ここに今日の出来事を追記する）");
   });
 });

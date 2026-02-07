@@ -1,6 +1,6 @@
 # apps/api/src
 
-`apps/api/src` は Worker API の実装本体を保持し、HTTP route 定義 (`index.ts`) と境界テスト (`index.test.ts`) を管理する。
+`apps/api/src` は Worker API の実装本体を保持し、HTTP route 定義 (`index.ts`)、外部LLM境界（`openaiResponses.ts`）と境界テスト (`index.test.ts`) を管理する。
 
 - パス: `apps/api/src/README.md`
 - 状態: Implemented
@@ -30,14 +30,14 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:17`
-- [E2] `apps/api/src/index.test.ts:5`
+- [E1] `apps/api/src/index.ts:56`
+- [E2] `apps/api/src/index.test.ts:110`
 </details>
 
 ## スコープ
 
 - 対象（In scope）:
-  - `index.ts`, `index.test.ts`
+  - `index.ts`, `openaiResponses.ts`, `index.test.ts`
 - 対象外（Non-goals）:
   - wrangler config
 - 委譲（See）:
@@ -47,6 +47,7 @@
 - 依存方向:
   - 許可:
     - src -> core
+    - src -> db
   - 禁止:
     - src -> web/jobs
 
@@ -73,6 +74,7 @@
 .
 └── apps/api/src/
     ├── index.ts                 # route実装
+    ├── openaiResponses.ts        # OpenAI Responses client（外部LLM境界）
     ├── index.test.ts            # APIテスト
     └── README.md                # この文書
 ```
@@ -90,8 +92,8 @@
 
 | 公開シンボル    | 種別         | 定義元     | 目的                 | 根拠                       |
 | --------------- | ------------ | ---------- | -------------------- | -------------------------- |
-| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:85` |
-| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:88` |
+| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:27` |
+| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:248` |
 
 ### 使い方（必須）
 
@@ -104,15 +106,17 @@ const response = await app.request("/health");
 ### 依存ルール
 
 - 許可する import:
-  - `@future-diary/core`, `hono`, `zod`
+  - `@future-diary/core`, `@future-diary/db`, `hono`, `zod`
 - 禁止する import:
   - `apps/web/*`
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/api/src/index.ts:1`
-- [E2] `apps/api/src/index.ts:2`
-- [E3] `apps/api/src/index.ts:3`
+- [E2] `apps/api/src/index.ts:8`
+- [E3] `apps/api/src/index.ts:9`
+- [E4] `apps/api/src/index.ts:10`
+- [E5] `apps/api/src/index.ts:11`
 </details>
 
 ## 契約と検証
@@ -129,11 +133,12 @@ const response = await app.request("/health");
 
 | テストファイル  | コマンド                      | 検証内容              | 主要 assertion | 根拠                            |
 | --------------- | ----------------------------- | --------------------- | -------------- | ------------------------------- |
-| `index.test.ts` | `bun --cwd apps/api run test` | health/draft endpoint | status/title   | `apps/api/src/index.test.ts:31` |
+| `index.test.ts` | `bun --cwd apps/api run test` | health/draft endpoint | status/cache/llm | `apps/api/src/index.test.ts:226` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:14`
+- [E1] `apps/api/src/index.test.ts:120`
+- [E2] `apps/api/src/index.test.ts:161`
 </details>
 
 ## 設計ノート
@@ -141,24 +146,30 @@ const response = await app.request("/health");
 - データ形状:
   - request JSON -> validated object
 - 失敗セマンティクス:
-  - 400/422
+  - 400/500
 - メインフロー:
-  - parse/validate/call/return。
+  - parse/validate -> D1 cache read -> source fetch -> (OPENAI_API_KEYがあれば) OpenAI生成 -> (失敗/未設定なら) deterministic/fallback -> insert if missing -> return。
 - I/O 境界:
-  - HTTP
+  - HTTP + D1 + 外部LLM
 - トレードオフ:
   - 最小実装優先。
 
 ```mermaid
 flowchart TD
   IDX["index.ts"] -->|"call"| CORE["buildFutureDiaryDraft"]
+  IDX -->|"boundary(I/O)"| OA["OpenAI Responses API"]
+  IDX -->|"boundary(I/O)"| D1["D1 (DB binding)"]
   T["index.test.ts"] -->|"call"| IDX
 ```
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:42`
-- [E2] `apps/api/src/index.test.ts:6`
+- [E1] `apps/api/src/index.ts:56`
+- [E2] `apps/api/src/index.ts:96`
+- [E3] `apps/api/src/index.ts:115`
+- [E4] `apps/api/src/index.ts:144`
+- [E5] `apps/api/src/index.ts:180`
+- [E6] `apps/api/src/index.test.ts:161`
 </details>
 
 ## 品質
@@ -184,17 +195,17 @@ flowchart TD
 
 | 項目         | 判定 | 理由           | 根拠                       |
 | ------------ | ---- | -------------- | -------------------------- |
-| 副作用の隔離 | YES  | HTTP境界に限定 | `apps/api/src/index.ts:25` |
+| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM 境界に限定 | `apps/api/src/index.ts:56` |
 
 ### [OPEN]
 
-- [OPEN][TODO] DB/Vector port接続
-  - 背景: 固定データ実装
-  - 現状: stub fragments
+- [OPEN][TODO] Vectorize retrieval 接続
+  - 背景: RAG 検索に置換したい
+  - 現状: D1 の過去日記を source に使用
   - 受入条件:
-    - 実データ取得へ置換
+    - embedding 作成 + Vectorize query の導入（jobs含む）
   - 根拠:
-    - `apps/api/src/index.ts:45`
+    - `apps/api/src/index.ts:115`
 
 ### [ISSUE]
 

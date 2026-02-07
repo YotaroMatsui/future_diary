@@ -4,6 +4,7 @@ import type { DiaryRow } from "./schema";
 interface D1StatementLike {
   bind(...values: unknown[]): D1StatementLike;
   first<T>(columnName?: keyof T): Promise<T | null>;
+  all<T>(): Promise<{ results: T[] }>;
   run(): Promise<{ success: boolean }>;
 }
 
@@ -24,7 +25,8 @@ const toDiaryEntry = (row: DiaryRow): DiaryEntry => ({
 
 export interface DiaryRepository {
   findByUserAndDate(userId: string, date: string): Promise<DiaryEntry | null>;
-  upsertDraft(entry: Pick<DiaryEntry, "id" | "userId" | "date" | "generatedText">): Promise<void>;
+  listRecentByUserBeforeDate(userId: string, beforeDate: string, limit: number): Promise<DiaryEntry[]>;
+  createDraftIfMissing(entry: Pick<DiaryEntry, "id" | "userId" | "date" | "generatedText">): Promise<void>;
 }
 
 export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => ({
@@ -39,14 +41,42 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => ({
     return row === null ? null : toDiaryEntry(row);
   },
 
-  async upsertDraft(entry) {
+  async listRecentByUserBeforeDate(userId, beforeDate, limit) {
+    const response = await db
+      .prepare(
+        "SELECT id, user_id, date, status, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date < ? ORDER BY date DESC LIMIT ?",
+      )
+      .bind(userId, beforeDate, limit)
+      .all<DiaryRow>();
+
+    return response.results.map(toDiaryEntry);
+  },
+
+  async createDraftIfMissing(entry) {
     await db
       .prepare(
         `INSERT INTO diary_entries (id, user_id, date, status, generated_text, final_text, created_at, updated_at)
          VALUES (?, ?, ?, 'draft', ?, NULL, datetime('now'), datetime('now'))
-         ON CONFLICT(user_id, date) DO UPDATE SET generated_text = excluded.generated_text, updated_at = datetime('now')`,
+         ON CONFLICT(user_id, date) DO NOTHING`,
       )
       .bind(entry.id, entry.userId, entry.date, entry.generatedText)
+      .run();
+  },
+});
+
+export interface UserRepository {
+  upsertUser(user: { id: string; timezone: string }): Promise<void>;
+}
+
+export const createUserRepository = (db: D1DatabaseLike): UserRepository => ({
+  async upsertUser(user) {
+    await db
+      .prepare(
+        `INSERT INTO users (id, timezone, preferences_json, created_at, updated_at)
+         VALUES (?, ?, '{}', datetime('now'), datetime('now'))
+         ON CONFLICT(id) DO UPDATE SET timezone = excluded.timezone, updated_at = datetime('now')`,
+      )
+      .bind(user.id, user.timezone)
       .run();
   },
 });

@@ -1,6 +1,6 @@
 # packages/core/src
 
-`packages/core/src` は domain types と未来日記生成 usecase の実装本体を保持する。
+`packages/core/src` は domain types と未来日記生成 usecase の実装本体を保持し、外部LLM向けの prompt/schema（pure）も提供する。
 
 - パス: `packages/core/src/README.md`
 - 状態: Implemented
@@ -30,14 +30,15 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/core/src/futureDiary.ts:19`
+- [E1] `packages/core/src/futureDiary.ts:20`
 - [E2] `packages/core/src/types.ts:1`
+- [E3] `packages/core/src/futureDiaryLlm.ts:20`
 </details>
 
 ## スコープ
 
 - 対象（In scope）:
-  - `futureDiary.ts`, `types.ts`, `index.ts`
+  - `futureDiary.ts`, `futureDiaryLlm.ts`, `types.ts`, `index.ts`
 - 対象外（Non-goals）:
   - DB/HTTP
 - 委譲（See）:
@@ -75,6 +76,8 @@
     ├── types.ts                 # domain type contracts
     ├── futureDiary.ts           # usecase implementation
     ├── futureDiary.test.ts      # usecase tests
+    ├── futureDiaryLlm.ts        # LLM prompt/schema (pure)
+    ├── futureDiaryLlm.test.ts   # prompt/schema tests
     ├── index.ts                 # exports
     └── README.md                # この文書
 ```
@@ -85,6 +88,10 @@
 
 - 提供:
   - `buildFutureDiaryDraft`
+  - `buildFallbackFutureDiaryDraft`
+  - `buildFutureDiaryDraftLlmSystemPrompt`
+  - `buildFutureDiaryDraftLlmUserPrompt`
+  - `futureDiaryDraftBodyJsonSchema`
   - `Result` など型
 - 非提供:
   - IO API
@@ -93,7 +100,11 @@
 
 | 公開シンボル            | 種別     | 定義元           | 目的      | 根拠                                  |
 | ----------------------- | -------- | ---------------- | --------- | ------------------------------------- |
-| `buildFutureDiaryDraft` | function | `futureDiary.ts` | draft生成 | `packages/core/src/futureDiary.ts:19` |
+| `buildFutureDiaryDraft` | function | `futureDiary.ts` | draft生成 | `packages/core/src/futureDiary.ts:20` |
+| `buildFallbackFutureDiaryDraft` | function | `futureDiary.ts` | fallback | `packages/core/src/futureDiary.ts:63` |
+| `buildFutureDiaryDraftLlmSystemPrompt` | function | `futureDiaryLlm.ts` | LLM prompt | `packages/core/src/futureDiaryLlm.ts:20` |
+| `buildFutureDiaryDraftLlmUserPrompt` | function | `futureDiaryLlm.ts` | LLM prompt | `packages/core/src/futureDiaryLlm.ts:33` |
+| `futureDiaryDraftBodyJsonSchema` | const | `futureDiaryLlm.ts` | schema | `packages/core/src/futureDiaryLlm.ts:7` |
 
 ### 使い方（必須）
 
@@ -110,7 +121,7 @@ import { buildFutureDiaryDraft } from "./futureDiary";
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/core/src/futureDiary.ts:7`
+- [E1] `packages/core/src/futureDiary.ts:1`
 </details>
 
 ## 契約と検証
@@ -128,6 +139,7 @@ import { buildFutureDiaryDraft } from "./futureDiary";
 | テストファイル        | コマンド                           | 検証内容      | 主要 assertion  | 根拠                                       |
 | --------------------- | ---------------------------------- | ------------- | --------------- | ------------------------------------------ |
 | `futureDiary.test.ts` | `bun --cwd packages/core run test` | success/error | expected result | `packages/core/src/futureDiary.test.ts:40` |
+| `futureDiaryLlm.test.ts` | `bun --cwd packages/core run test` | prompt/schema | contains input | `packages/core/src/futureDiaryLlm.test.ts:17` |
 
 <details><summary>根拠（Evidence）</summary>
 
@@ -151,6 +163,8 @@ import { buildFutureDiaryDraft } from "./futureDiary";
 flowchart TD
   F["futureDiary.ts"] -->|"import"| T["types.ts"]
   X["futureDiary.test.ts"] -->|"call"| F
+  L["futureDiaryLlm.ts"] -->|"import"| T
+  Y["futureDiaryLlm.test.ts"] -->|"call"| L
 ```
 
 <details><summary>根拠（Evidence）</summary>
@@ -182,7 +196,7 @@ flowchart TD
 
 | 項目   | 判定 | 理由              | 根拠                                  |
 | ------ | ---- | ----------------- | ------------------------------------- |
-| 純粋性 | YES  | external I/O なし | `packages/core/src/futureDiary.ts:19` |
+| 純粋性 | YES  | external I/O なし | `packages/core/src/futureDiary.ts:20` |
 
 ### [OPEN]
 
@@ -192,7 +206,7 @@ flowchart TD
   - 受入条件:
     - style features追加
   - 根拠:
-    - `packages/core/src/futureDiary.ts:11`
+    - `packages/core/src/futureDiary.ts:12`
 
 ### [ISSUE]
 

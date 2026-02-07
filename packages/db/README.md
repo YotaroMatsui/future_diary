@@ -1,6 +1,6 @@
 # packages/db
 
-`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` を提供し、`packages/core::DiaryEntry` への変換と upsert クエリを担当する。スキーマ契約は `src/migrations/0001_initial.sql` と `src/schema.ts` が SSOT。
+`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `UserRepository` を提供し、`packages/core::DiaryEntry` への変換と user/draft の read/write クエリを担当する。スキーマ契約は `src/migrations/0001_initial.sql` と `src/schema.ts` が SSOT。
 
 - パス: `packages/db/README.md`
 - 状態: Implemented
@@ -28,20 +28,23 @@
 ## 役割
 
 - D1 row <-> domain entry の変換を行う。
-- `findByUserAndDate` / `upsertDraft` を提供する。
+- `findByUserAndDate` / `listRecentByUserBeforeDate` / `createDraftIfMissing` を提供する。
+- `upsertUser` を提供する（`diary_entries.user_id` の FK を満たすため）。
 - migration SQL で `users` / `diary_entries` を定義する。
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/db/src/repository.ts:14` — `toDiaryEntry`。
-- [E2] `packages/db/src/repository.ts:25` — `DiaryRepository` interface。
-- [E3] `packages/db/src/repository.ts:42` — upsert。
-- [E4] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table。
+- [E1] `packages/db/src/repository.ts:15` — `toDiaryEntry`。
+- [E2] `packages/db/src/repository.ts:26` — `DiaryRepository` interface。
+- [E3] `packages/db/src/repository.ts:55` — `createDraftIfMissing`。
+- [E4] `packages/db/src/repository.ts:71` — `upsertUser`（`createUserRepository`）。
+- [E5] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table。
+- [E6] `packages/db/src/repository.ts:41` — `toDiaryEntry` call。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
   - `findByUserAndDate` -> `toDiaryEntry`:
-    - call: [E5] `packages/db/src/repository.ts:39`
-    - def: [E1] `packages/db/src/repository.ts:14`
+    - call: [E6] `packages/db/src/repository.ts:41`
+    - def: [E1] `packages/db/src/repository.ts:15`
 
 </details>
 
@@ -98,6 +101,7 @@
 
 - 提供:
   - `createDiaryRepository`
+  - `createUserRepository`
   - `DiaryRow` / `UserRow`
 - 非提供:
   - DB connection lifecycle
@@ -106,17 +110,21 @@
 
 | 公開シンボル            | 種別      | 定義元              | 目的              | 根拠                                            |
 | ----------------------- | --------- | ------------------- | ----------------- | ----------------------------------------------- |
-| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:30`              |
+| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:32`              |
+| `createUserRepository`  | function  | `src/repository.ts` | D1 user upsert    | `packages/db/src/repository.ts:71`              |
 | `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:4`                   |
 | `0001_initial.sql`      | migration | `src/migrations`    | schema初期化      | `packages/db/src/migrations/0001_initial.sql:1` |
 
 ### 使い方（必須）
 
 ```ts
-import { createDiaryRepository } from "@future-diary/db";
+import { createDiaryRepository, createUserRepository } from "@future-diary/db";
 
-const repo = createDiaryRepository(db);
-const entry = await repo.findByUserAndDate("u1", "2026-02-07");
+const userRepo = createUserRepository(db);
+await userRepo.upsertUser({ id: "u1", timezone: "Asia/Tokyo" });
+
+const diaryRepo = createDiaryRepository(db);
+const entry = await diaryRepo.findByUserAndDate("u1", "2026-02-07");
 ```
 
 ### 依存ルール
@@ -174,14 +182,14 @@ const entry = await repo.findByUserAndDate("u1", "2026-02-07");
 flowchart TD
   RP["packages/db/src/repository.ts::findByUserAndDate"] -->|"boundary(I/O)"| D1["D1DatabaseLike.prepare"]
   RP -->|"call"| MAP["toDiaryEntry"]
-  U["upsertDraft"] -->|"boundary(I/O)"| SQL["INSERT ... ON CONFLICT"]
+  U["createDraftIfMissing"] -->|"boundary(I/O)"| SQL["INSERT ... ON CONFLICT DO NOTHING"]
 ```
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/repository.ts:32`
 - [E2] `packages/db/src/repository.ts:39`
-- [E3] `packages/db/src/repository.ts:45`
+- [E3] `packages/db/src/repository.ts:55`
 </details>
 
 ## 品質
@@ -193,13 +201,14 @@ flowchart TD
 | リスク           | 対策（検証入口）                 | 根拠                                             |
 | ---------------- | -------------------------------- | ------------------------------------------------ |
 | schema差異       | migrationをSSOT化                | `packages/db/src/migrations/0001_initial.sql:1`  |
-| domain変換不整合 | `toDiaryEntry` 単一点変換        | `packages/db/src/repository.ts:14`               |
-| 重複生成         | `UNIQUE(user_id, date)` + upsert | `packages/db/src/migrations/0001_initial.sql:19` |
+| domain変換不整合 | `toDiaryEntry` 単一点変換        | `packages/db/src/repository.ts:15`               |
+| 重複生成         | `UNIQUE(user_id, date)` + `createDraftIfMissing` | `packages/db/src/migrations/0001_initial.sql:19` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/db/src/repository.ts:47`
-- [E2] `packages/db/src/migrations/0001_initial.sql:19`
+- [E1] `packages/db/src/repository.ts:15`
+- [E2] `packages/db/src/repository.ts:55`
+- [E3] `packages/db/src/migrations/0001_initial.sql:19`
 </details>
 
 ## 内部
@@ -211,9 +220,9 @@ flowchart TD
 
 | 項目               | 判定 | 理由                                  | 根拠                               |
 | ------------------ | ---- | ------------------------------------- | ---------------------------------- |
-| 副作用の隔離       | YES  | D1呼び出しを repository に限定        | `packages/db/src/repository.ts:30` |
+| 副作用の隔離       | YES  | D1呼び出しを repository に限定        | `packages/db/src/repository.ts:32` |
 | データと計算の分離 | YES  | `schema.ts` と `repository.ts` を分離 | `packages/db/src/schema.ts:1`      |
-| 例外より型         | NO   | DB例外をそのまま伝播                  | `packages/db/src/repository.ts:32` |
+| 例外より型         | NO   | DB例外をそのまま伝播                  | `packages/db/src/repository.ts:33` |
 
 ### [OPEN]
 
@@ -223,7 +232,7 @@ flowchart TD
   - 受入条件:
     - 境界で例外をドメインエラーへ変換。
   - 根拠:
-    - `packages/db/src/repository.ts:32`
+    - `packages/db/src/repository.ts:33`
 
 ### [ISSUE]
 

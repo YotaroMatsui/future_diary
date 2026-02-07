@@ -18,9 +18,11 @@
 │   ├── README.md
 │   ├── api/
 │   │   ├── README.md
+│   │   ├── .dev.vars.example
 │   │   ├── src/
 │   │   │   ├── README.md
 │   │   │   ├── index.ts
+│   │   │   ├── openaiResponses.ts
 │   │   │   └── index.test.ts
 │   │   └── wrangler.toml
 │   ├── web/
@@ -42,12 +44,18 @@
 │   │   ├── README.md
 │   │   └── src/
 │   │       ├── README.md
+│   │       ├── index.ts
+│   │       ├── types.ts
 │   │       ├── futureDiary.ts
-│   │       └── futureDiary.test.ts
+│   │       ├── futureDiary.test.ts
+│   │       ├── futureDiaryLlm.ts
+│   │       └── futureDiaryLlm.test.ts
 │   ├── db/
 │   │   ├── README.md
 │   │   └── src/
 │   │       ├── README.md
+│   │       ├── index.ts
+│   │       ├── schema.ts
 │   │       ├── repository.ts
 │   │       └── migrations/
 │   │           ├── README.md
@@ -56,11 +64,13 @@
 │   │   ├── README.md
 │   │   └── src/
 │   │       ├── README.md
+│   │       ├── index.ts
 │   │       └── search.ts
 │   └── ui/
 │       ├── README.md
 │       └── src/
 │           ├── README.md
+│           ├── index.ts
 │           └── statusLabel.ts
 ├── docs/
 │   ├── requirements-ssot.md
