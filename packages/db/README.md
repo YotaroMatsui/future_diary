@@ -74,12 +74,13 @@
 - 依存インストール: `make install`
 - 環境変数: `wrangler` の local D1 設定
 - 起動: N/A
-- 確認: `make db-migrate`
+- 確認: `make db-migrate`, `make db-migrate-remote`
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/package.json:9`
-- [E2] `Makefile:30`
+- [E2] `packages/db/package.json:10`
+- [E3] `Makefile:30`
 </details>
 
 ## ディレクトリ構成
@@ -141,13 +142,14 @@ const entry = await repo.findByUserAndDate("u1", "2026-02-07");
 ### 検証入口（CI / ローカル）
 
 - [E1] `bun --cwd packages/db run typecheck`
-- [E2] `bun --cwd packages/db run migrate`
+- [E2] `bun run --cwd packages/db migrate`
+- [E3] `bun run --cwd packages/db migrate-remote`
 
 ### テスト（根拠として使う場合）
 
-| テストファイル | コマンド                            | 検証内容      | 主要 assertion   | 根拠                         |
-| -------------- | ----------------------------------- | ------------- | ---------------- | ---------------------------- |
-| N/A            | `bun --cwd packages/db run migrate` | migration適用 | SQL syntax valid | `packages/db/package.json:9` |
+| テストファイル | コマンド                                   | 検証内容             | 主要 assertion   | 根拠                          |
+| -------------- | ------------------------------------------ | -------------------- | ---------------- | ----------------------------- |
+| N/A            | `bun run --cwd packages/db migrate-remote` | remote migration適用 | SQL syntax valid | `packages/db/package.json:10` |
 
 <details><summary>根拠（Evidence）</summary>
 

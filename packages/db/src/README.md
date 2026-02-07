@@ -61,11 +61,12 @@
 - 依存インストール: `make install`
 - 環境変数: N/A
 - 起動: N/A
-- 確認: `make db-migrate`
+- 確認: `make db-migrate`, `make db-migrate-remote`
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/package.json:9`
+- [E2] `packages/db/package.json:10`
 </details>
 
 ## ディレクトリ構成
@@ -126,9 +127,9 @@ import { createDiaryRepository } from "./repository";
 
 ### テスト（根拠として使う場合）
 
-| テストファイル | コマンド                            | 検証内容   | 主要 assertion | 根拠                         |
-| -------------- | ----------------------------------- | ---------- | -------------- | ---------------------------- |
-| N/A            | `bun --cwd packages/db run migrate` | schema適用 | SQL valid      | `packages/db/package.json:9` |
+| テストファイル | コマンド                                   | 検証内容          | 主要 assertion | 根拠                          |
+| -------------- | ------------------------------------------ | ----------------- | -------------- | ----------------------------- |
+| N/A            | `bun run --cwd packages/db migrate-remote` | remote schema適用 | SQL valid      | `packages/db/package.json:10` |
 
 <details><summary>根拠（Evidence）</summary>
 

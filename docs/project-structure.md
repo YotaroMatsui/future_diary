@@ -76,11 +76,13 @@
 - `make dev-api`: API Worker 開発サーバー起動
 - `make dev-web`: Web (Vite) 開発サーバー起動
 - `make db-migrate`: D1 migration 適用
+- `make db-migrate-remote`: D1 remote migration 適用
 - `make vector-reindex`: Vector再構築ジョブ実行
 - `make lint`, `make test`, `make typecheck`, `make build`, `make ci`
 
 ## Notes
 
-- `apps/api/wrangler.toml` の `database_id` はダミー値。実環境IDに置き換えること。
+- D1 は `future-diary`（id: `fddf415b-ab33-405d-9845-e34375371822`）を使用する。
+- Vectorize は `future-diary-index`（1536, cosine）を使用する。
 - 現在のCI前提コマンドは `bun` 導入済み環境を前提とする。
 - README は親を導線、子を詳細として責務分離している。

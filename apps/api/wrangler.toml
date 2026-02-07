@@ -6,7 +6,8 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "future-diary"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "fddf415b-ab33-405d-9845-e34375371822"
+migrations_dir = "../../packages/db/src/migrations"
 
 [[vectorize]]
 binding = "VECTOR_INDEX"

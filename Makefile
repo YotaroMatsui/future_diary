@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev-api dev-web db-migrate vector-reindex build test ci lint lint-fix format format-check typecheck
+.PHONY: help install dev-api dev-web db-migrate db-migrate-remote vector-reindex build test ci lint lint-fix format format-check typecheck
 
 help:
 	@echo "Available targets:"
@@ -8,6 +8,7 @@ help:
 	@echo "  make dev-api         Start API development command"
 	@echo "  make dev-web         Start Web development command"
 	@echo "  make db-migrate      Run D1 migration command"
+	@echo "  make db-migrate-remote  Run D1 remote migration command"
 	@echo "  make vector-reindex  Run vector index rebuild command"
 	@echo "  make lint            Run lint commands"
 	@echo "  make lint-fix        Run lint auto-fix commands"
@@ -29,6 +30,9 @@ dev-web:
 
 db-migrate:
 	bun run db:migrate
+
+db-migrate-remote:
+	bun run db:migrate:remote
 
 vector-reindex:
 	bun run vector:reindex

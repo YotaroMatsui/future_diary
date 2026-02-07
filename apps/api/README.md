@@ -10,7 +10,7 @@
   - See: `packages/db/README.md`
   - See: `packages/vector/README.md`
 - 注意:
-  - `wrangler.toml` の `database_id` はダミー値。
+  - `wrangler.toml` の `database_id` は Cloudflare 作成済み ID を設定済み。
 
 <details>
 <summary>目次</summary>
@@ -18,6 +18,7 @@
 - [役割](#役割)
 - [スコープ](#スコープ)
 - [ローカル開発](#ローカル開発)
+- [本番デプロイ](#本番デプロイ)
 - [ディレクトリ構成](#ディレクトリ構成)
 - [公開インタフェース](#公開インタフェース)
 - [契約と検証](#契約と検証)
@@ -84,6 +85,43 @@
 
 - [E1] `apps/api/package.json:6` — `wrangler dev`。
 - [E2] `apps/api/.dev.vars.example:1` — `APP_ENV`。
+</details>
+
+## 本番デプロイ
+
+`apps/api/wrangler.toml` は `workers_dev = true` のため、基本は `*.workers.dev` に publish する。
+
+### Secret（Workers）
+
+現時点で code が参照する Secret は `APP_ENV` のみ（`/health` の `env` 表示に使用）:
+
+```bash
+bunx wrangler secret put APP_ENV --config apps/api/wrangler.toml
+```
+
+入力値: `production`
+
+### Deploy / Verify
+
+```bash
+bunx wrangler deploy --config apps/api/wrangler.toml
+curl https://<wrangler出力のURL>/health
+```
+
+期待値:
+
+- `ok: true`
+- `env: "production"`
+
+### workers.dev subdomain が未登録の場合
+
+初回デプロイ時に `workers.dev subdomain` の登録が必要になる。`wrangler deploy` 実行時に案内されるので、指示に従って登録する。
+
+<details><summary>根拠（Evidence）</summary>
+
+- [E1] `apps/api/src/index.ts:20` — `APP_ENV` を読み `env` に載せる。
+- [E2] `apps/api/wrangler.toml:4` — `workers_dev = true`。
+
 </details>
 
 ## ディレクトリ構成
@@ -240,13 +278,6 @@ flowchart TD
     - repository/vector port を使う。
   - 根拠:
     - `apps/api/src/index.ts:45`
-- [OPEN][TODO] `wrangler.toml` の本番DB ID設定
-  - 背景: ダミーID。
-  - 現状: `00000000-0000-0000-0000-000000000000`
-  - 受入条件:
-    - 実IDへ置換。
-  - 根拠:
-    - `apps/api/wrangler.toml:9`
 
 ### [ISSUE]
 

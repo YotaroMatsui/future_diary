@@ -2,3 +2,7 @@ name = "future-diary-jobs"
 main = "src/reindex.ts"
 compatibility_date = "2026-02-07"
 workers_dev = true
+
+[[vectorize]]
+binding = "VECTOR_INDEX"
+index_name = "future-diary-index"

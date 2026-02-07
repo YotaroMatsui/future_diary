@@ -60,7 +60,7 @@
 - 依存インストール: `make install`
 - 環境変数: wrangler local D1
 - 起動: N/A
-- 確認: `make db-migrate`
+- 確認: `make db-migrate`, `make db-migrate-remote`
 
 <details><summary>根拠（Evidence）</summary>
 
@@ -94,7 +94,8 @@
 ### 使い方（必須）
 
 ```bash
-bun --cwd packages/db run migrate
+bun run --cwd packages/db migrate
+bun run --cwd packages/db migrate-remote
 ```
 
 ### 依存ルール
@@ -107,6 +108,7 @@ bun --cwd packages/db run migrate
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/package.json:9`
+- [E2] `packages/db/package.json:10`
 </details>
 
 ## 契約と検証
@@ -117,13 +119,14 @@ bun --cwd packages/db run migrate
 
 ### 検証入口（CI / ローカル）
 
-- [E1] `bun --cwd packages/db run migrate`
+- [E1] `bun run --cwd packages/db migrate`
+- [E2] `bun run --cwd packages/db migrate-remote`
 
 ### テスト（根拠として使う場合）
 
-| テストファイル | コマンド                            | 検証内容 | 主要 assertion | 根拠                         |
-| -------------- | ----------------------------------- | -------- | -------------- | ---------------------------- |
-| N/A            | `bun --cwd packages/db run migrate` | SQL適用  | apply success  | `packages/db/package.json:9` |
+| テストファイル | コマンド                                   | 検証内容 | 主要 assertion | 根拠                          |
+| -------------- | ------------------------------------------ | -------- | -------------- | ----------------------------- |
+| N/A            | `bun run --cwd packages/db migrate-remote` | SQL適用  | apply success  | `packages/db/package.json:10` |
 
 <details><summary>根拠（Evidence）</summary>
 

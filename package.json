@@ -6,10 +6,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:api": "bun --cwd apps/api run dev",
-    "dev:web": "bun --cwd apps/web run dev",
-    "db:migrate": "bun --cwd packages/db run migrate",
-    "vector:reindex": "bun --cwd apps/jobs run vector:reindex",
+    "dev:api": "bun run --cwd apps/api dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "db:migrate": "bun run --cwd packages/db migrate",
+    "db:migrate:remote": "bun run --cwd packages/db migrate-remote",
+    "vector:reindex": "bun run --cwd apps/jobs vector:reindex",
     "typecheck": "bun run --workspaces --if-present typecheck",
     "build": "bun run --workspaces --if-present build",
     "test": "bun run --workspaces --if-present test",

@@ -76,6 +76,7 @@
 - 依存インストール: `make install`
 - 環境変数: `apps/api/.dev.vars.example`, `apps/web/.env.example`
 - 起動: `make dev-api`, `make dev-web`
+- DB migration: `make db-migrate`（local）, `make db-migrate-remote`（remote）
 - 確認: `make ci`
 
 <details><summary>根拠（Evidence）</summary>
