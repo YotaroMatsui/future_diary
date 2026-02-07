@@ -28,7 +28,8 @@
 ## 役割
 
 - D1 row <-> domain entry の変換を行う。
-- `findByUserAndDate` / `listRecentByUserBeforeDate` / `createDraftIfMissing` を提供する。
+- `findByUserAndDate` / `listRecentByUserBeforeDate` / `listRecentByUserOnOrBeforeDate` を提供する。
+- `createDraftIfMissing` / `updateFinalText` / `confirmEntry` を提供する。
 - `upsertUser` を提供する（`diary_entries.user_id` の FK を満たすため）。
 - migration SQL で `users` / `diary_entries` を定義する。
 
@@ -36,14 +37,16 @@
 
 - [E1] `packages/db/src/repository.ts:15` — `toDiaryEntry`。
 - [E2] `packages/db/src/repository.ts:26` — `DiaryRepository` interface。
-- [E3] `packages/db/src/repository.ts:55` — `createDraftIfMissing`。
-- [E4] `packages/db/src/repository.ts:71` — `upsertUser`（`createUserRepository`）。
-- [E5] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table。
-- [E6] `packages/db/src/repository.ts:41` — `toDiaryEntry` call。
+- [E3] `packages/db/src/repository.ts:73` — `createDraftIfMissing`。
+- [E4] `packages/db/src/repository.ts:86` — `updateFinalText`。
+- [E5] `packages/db/src/repository.ts:100` — `confirmEntry`。
+- [E6] `packages/db/src/repository.ts:131` — `upsertUser`（`createUserRepository`）。
+- [E7] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table。
+- [E8] `packages/db/src/repository.ts:44` — `toDiaryEntry` call。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
   - `findByUserAndDate` -> `toDiaryEntry`:
-    - call: [E6] `packages/db/src/repository.ts:41`
+    - call: [E8] `packages/db/src/repository.ts:44`
     - def: [E1] `packages/db/src/repository.ts:15`
 
 </details>
@@ -110,8 +113,8 @@
 
 | 公開シンボル            | 種別      | 定義元              | 目的              | 根拠                                            |
 | ----------------------- | --------- | ------------------- | ----------------- | ----------------------------------------------- |
-| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:32`              |
-| `createUserRepository`  | function  | `src/repository.ts` | D1 user upsert    | `packages/db/src/repository.ts:71`              |
+| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:35`              |
+| `createUserRepository`  | function  | `src/repository.ts` | D1 user upsert    | `packages/db/src/repository.ts:130`              |
 | `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:4`                   |
 | `0001_initial.sql`      | migration | `src/migrations`    | schema初期化      | `packages/db/src/migrations/0001_initial.sql:1` |
 
@@ -187,9 +190,9 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/db/src/repository.ts:32`
-- [E2] `packages/db/src/repository.ts:39`
-- [E3] `packages/db/src/repository.ts:55`
+- [E1] `packages/db/src/repository.ts:38`
+- [E2] `packages/db/src/repository.ts:44`
+- [E3] `packages/db/src/repository.ts:73`
 </details>
 
 ## 品質
@@ -207,7 +210,7 @@ flowchart TD
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/repository.ts:15`
-- [E2] `packages/db/src/repository.ts:55`
+- [E2] `packages/db/src/repository.ts:73`
 - [E3] `packages/db/src/migrations/0001_initial.sql:19`
 </details>
 
@@ -220,9 +223,9 @@ flowchart TD
 
 | 項目               | 判定 | 理由                                  | 根拠                               |
 | ------------------ | ---- | ------------------------------------- | ---------------------------------- |
-| 副作用の隔離       | YES  | D1呼び出しを repository に限定        | `packages/db/src/repository.ts:32` |
+| 副作用の隔離       | YES  | D1呼び出しを repository に限定        | `packages/db/src/repository.ts:35` |
 | データと計算の分離 | YES  | `schema.ts` と `repository.ts` を分離 | `packages/db/src/schema.ts:1`      |
-| 例外より型         | NO   | DB例外をそのまま伝播                  | `packages/db/src/repository.ts:33` |
+| 例外より型         | NO   | DB例外をそのまま伝播                  | `packages/db/src/repository.ts:36` |
 
 ### [OPEN]
 
@@ -232,7 +235,7 @@ flowchart TD
   - 受入条件:
     - 境界で例外をドメインエラーへ変換。
   - 根拠:
-    - `packages/db/src/repository.ts:33`
+    - `packages/db/src/repository.ts:36`
 
 ### [ISSUE]
 

@@ -30,8 +30,8 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:56`
-- [E2] `apps/api/src/index.test.ts:110`
+- [E1] `apps/api/src/index.ts:75`
+- [E2] `apps/api/src/index.test.ts:156`
 </details>
 
 ## スコープ
@@ -92,8 +92,8 @@
 
 | 公開シンボル    | 種別         | 定義元     | 目的                 | 根拠                       |
 | --------------- | ------------ | ---------- | -------------------- | -------------------------- |
-| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:27` |
-| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:248` |
+| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:46` |
+| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:489` |
 
 ### 使い方（必須）
 
@@ -124,6 +124,10 @@ const response = await app.request("/health");
 ### 契約 SSOT
 
 - `draftRequestSchema`
+- `diaryEntryGetRequestSchema`
+- `diaryEntrySaveRequestSchema`
+- `diaryEntryConfirmRequestSchema`
+- `diaryEntryListRequestSchema`
 
 ### 検証入口（CI / ローカル）
 
@@ -133,12 +137,12 @@ const response = await app.request("/health");
 
 | テストファイル  | コマンド                      | 検証内容              | 主要 assertion | 根拠                            |
 | --------------- | ----------------------------- | --------------------- | -------------- | ------------------------------- |
-| `index.test.ts` | `bun --cwd apps/api run test` | health/draft endpoint | status/cache/llm | `apps/api/src/index.test.ts:226` |
+| `index.test.ts` | `bun --cwd apps/api run test` | endpoints smoke test  | status=200     | `apps/api/src/index.test.ts:156` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:120`
-- [E2] `apps/api/src/index.test.ts:161`
+- [E1] `apps/api/src/index.test.ts:157`
+- [E2] `apps/api/src/index.test.ts:166`
 </details>
 
 ## 設計ノート
@@ -164,12 +168,12 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:56`
-- [E2] `apps/api/src/index.ts:96`
-- [E3] `apps/api/src/index.ts:115`
-- [E4] `apps/api/src/index.ts:144`
-- [E5] `apps/api/src/index.ts:180`
-- [E6] `apps/api/src/index.test.ts:161`
+- [E1] `apps/api/src/index.ts:75`
+- [E2] `apps/api/src/index.ts:115`
+- [E3] `apps/api/src/index.ts:134`
+- [E4] `apps/api/src/index.ts:164`
+- [E5] `apps/api/src/index.ts:214`
+- [E6] `apps/api/src/index.test.ts:156`
 </details>
 
 ## 品質
@@ -180,11 +184,11 @@ flowchart TD
 
 | リスク    | 対策（検証入口） | 根拠                           |
 | --------- | ---------------- | ------------------------------ |
-| route回帰 | `index.test.ts`  | `apps/api/src/index.test.ts:4` |
+| route回帰 | `index.test.ts`  | `apps/api/src/index.test.ts:156` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:4`
+- [E1] `apps/api/src/index.test.ts:156`
 </details>
 
 ## 内部
@@ -195,7 +199,7 @@ flowchart TD
 
 | 項目         | 判定 | 理由           | 根拠                       |
 | ------------ | ---- | -------------- | -------------------------- |
-| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM 境界に限定 | `apps/api/src/index.ts:56` |
+| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM 境界に限定 | `apps/api/src/index.ts:75` |
 
 ### [OPEN]
 
@@ -205,7 +209,7 @@ flowchart TD
   - 受入条件:
     - embedding 作成 + Vectorize query の導入（jobs含む）
   - 根拠:
-    - `apps/api/src/index.ts:115`
+    - `apps/api/src/index.ts:134`
 
 ### [ISSUE]
 

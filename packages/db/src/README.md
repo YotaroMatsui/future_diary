@@ -96,8 +96,8 @@
 
 | 公開シンボル            | 種別     | 定義元          | 目的   | 根拠                               |
 | ----------------------- | -------- | --------------- | ------ | ---------------------------------- |
-| `createDiaryRepository` | function | `repository.ts` | D1操作 | `packages/db/src/repository.ts:32` |
-| `createUserRepository`  | function | `repository.ts` | user upsert | `packages/db/src/repository.ts:71` |
+| `createDiaryRepository` | function | `repository.ts` | D1操作 | `packages/db/src/repository.ts:35` |
+| `createUserRepository`  | function | `repository.ts` | user upsert | `packages/db/src/repository.ts:130` |
 
 ### 使い方（必須）
 
@@ -186,7 +186,7 @@ flowchart TD
 
 | 項目         | 判定 | 理由             | 根拠                               |
 | ------------ | ---- | ---------------- | ---------------------------------- |
-| 副作用の隔離 | YES  | repositoryへ限定 | `packages/db/src/repository.ts:32` |
+| 副作用の隔離 | YES  | repositoryへ限定 | `packages/db/src/repository.ts:35` |
 
 ### [OPEN]
 
@@ -196,7 +196,7 @@ flowchart TD
   - 受入条件:
     - Result変換
   - 根拠:
-    - `packages/db/src/repository.ts:33`
+    - `packages/db/src/repository.ts:36`
 
 ### [ISSUE]
 

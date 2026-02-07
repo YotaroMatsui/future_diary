@@ -10,10 +10,29 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { requestOpenAiStructuredOutputText } from "./openaiResponses";
 
+const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
 const draftRequestSchema = z.object({
   userId: z.string().min(1),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: dateSchema,
   timezone: z.string().min(1).default("Asia/Tokyo"),
+});
+
+const diaryEntryGetRequestSchema = z.object({
+  userId: z.string().min(1),
+  date: dateSchema,
+});
+
+const diaryEntrySaveRequestSchema = diaryEntryGetRequestSchema.extend({
+  body: z.string().trim().min(1).max(20_000),
+});
+
+const diaryEntryConfirmRequestSchema = diaryEntryGetRequestSchema;
+
+const diaryEntryListRequestSchema = z.object({
+  userId: z.string().min(1),
+  onOrBeforeDate: dateSchema.optional().default("9999-12-31"),
+  limit: z.number().int().min(1).max(100).optional().default(30),
 });
 
 type WorkerBindings = {
@@ -99,7 +118,7 @@ app.post("/v1/future-diary/draft", async (context) => {
       ok: true,
       draft: {
         title: `${date} の未来日記`,
-        body: existingEntry.generatedText,
+        body: existingEntry.finalText ?? existingEntry.generatedText,
         sourceFragmentIds: [],
       },
       meta: {
@@ -244,7 +263,7 @@ app.post("/v1/future-diary/draft", async (context) => {
     ok: true,
     draft: {
       title: `${date} の未来日記`,
-      body: persistedEntry.generatedText,
+      body: persistedEntry.finalText ?? persistedEntry.generatedText,
       sourceFragmentIds: inserted ? draft.sourceFragmentIds : [],
     },
     meta: {
@@ -257,8 +276,216 @@ app.post("/v1/future-diary/draft", async (context) => {
   });
 });
 
-export { app };
+app.post("/v1/diary/entry/get", async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = diaryEntryGetRequestSchema.safeParse(payload);
 
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const db = context.env.DB;
+  const diaryRepo = createDiaryRepository(db);
+  const entry = await diaryRepo.findByUserAndDate(parsed.data.userId, parsed.data.date);
+
+  if (entry === null) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "NOT_FOUND",
+          message: "Diary entry was not found",
+        },
+      },
+      404,
+    );
+  }
+
+  return context.json({
+    ok: true,
+    entry,
+    body: entry.finalText ?? entry.generatedText,
+  });
+});
+
+app.post("/v1/diary/entry/save", async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = diaryEntrySaveRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const db = context.env.DB;
+  const diaryRepo = createDiaryRepository(db);
+  const entry = await diaryRepo.updateFinalText(parsed.data.userId, parsed.data.date, parsed.data.body);
+
+  if (entry === null) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "NOT_FOUND",
+          message: "Diary entry was not found",
+        },
+      },
+      404,
+    );
+  }
+
+  return context.json({
+    ok: true,
+    entry,
+    body: entry.finalText ?? entry.generatedText,
+  });
+});
+
+app.post("/v1/diary/entry/confirm", async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = diaryEntryConfirmRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const db = context.env.DB;
+  const diaryRepo = createDiaryRepository(db);
+  const entry = await diaryRepo.confirmEntry(parsed.data.userId, parsed.data.date);
+
+  if (entry === null) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "NOT_FOUND",
+          message: "Diary entry was not found",
+        },
+      },
+      404,
+    );
+  }
+
+  return context.json({
+    ok: true,
+    entry,
+    body: entry.finalText ?? entry.generatedText,
+  });
+});
+
+app.post("/v1/diary/entries/list", async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = diaryEntryListRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const db = context.env.DB;
+  const diaryRepo = createDiaryRepository(db);
+  const entries = await diaryRepo.listRecentByUserOnOrBeforeDate(
+    parsed.data.userId,
+    parsed.data.onOrBeforeDate,
+    parsed.data.limit,
+  );
+
+  return context.json({
+    ok: true,
+    entries: entries.map((entry) => ({
+      ...entry,
+      body: entry.finalText ?? entry.generatedText,
+    })),
+  });
+});
+
+export { app };
 export default {
   fetch: app.fetch,
 };

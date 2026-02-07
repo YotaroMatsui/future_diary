@@ -26,11 +26,14 @@ const toDiaryEntry = (row: DiaryRow): DiaryEntry => ({
 export interface DiaryRepository {
   findByUserAndDate(userId: string, date: string): Promise<DiaryEntry | null>;
   listRecentByUserBeforeDate(userId: string, beforeDate: string, limit: number): Promise<DiaryEntry[]>;
+  listRecentByUserOnOrBeforeDate(userId: string, onOrBeforeDate: string, limit: number): Promise<DiaryEntry[]>;
   createDraftIfMissing(entry: Pick<DiaryEntry, "id" | "userId" | "date" | "generatedText">): Promise<void>;
+  updateFinalText(userId: string, date: string, finalText: string | null): Promise<DiaryEntry | null>;
+  confirmEntry(userId: string, date: string): Promise<DiaryEntry | null>;
 }
 
-export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => ({
-  async findByUserAndDate(userId, date) {
+export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
+  const findByUserAndDate = async (userId: string, date: string): Promise<DiaryEntry | null> => {
     const row = await db
       .prepare(
         "SELECT id, user_id, date, status, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date = ?",
@@ -39,9 +42,9 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => ({
       .first<DiaryRow>();
 
     return row === null ? null : toDiaryEntry(row);
-  },
+  };
 
-  async listRecentByUserBeforeDate(userId, beforeDate, limit) {
+  const listRecentByUserBeforeDate = async (userId: string, beforeDate: string, limit: number): Promise<DiaryEntry[]> => {
     const response = await db
       .prepare(
         "SELECT id, user_id, date, status, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date < ? ORDER BY date DESC LIMIT ?",
@@ -50,9 +53,26 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => ({
       .all<DiaryRow>();
 
     return response.results.map(toDiaryEntry);
-  },
+  };
 
-  async createDraftIfMissing(entry) {
+  const listRecentByUserOnOrBeforeDate = async (
+    userId: string,
+    onOrBeforeDate: string,
+    limit: number,
+  ): Promise<DiaryEntry[]> => {
+    const response = await db
+      .prepare(
+        "SELECT id, user_id, date, status, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date <= ? ORDER BY date DESC LIMIT ?",
+      )
+      .bind(userId, onOrBeforeDate, limit)
+      .all<DiaryRow>();
+
+    return response.results.map(toDiaryEntry);
+  };
+
+  const createDraftIfMissing = async (
+    entry: Pick<DiaryEntry, "id" | "userId" | "date" | "generatedText">,
+  ): Promise<void> => {
     await db
       .prepare(
         `INSERT INTO diary_entries (id, user_id, date, status, generated_text, final_text, created_at, updated_at)
@@ -61,8 +81,47 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => ({
       )
       .bind(entry.id, entry.userId, entry.date, entry.generatedText)
       .run();
-  },
-});
+  };
+
+  const updateFinalText = async (userId: string, date: string, finalText: string | null): Promise<DiaryEntry | null> => {
+    const existing = await findByUserAndDate(userId, date);
+    if (existing === null) {
+      return null;
+    }
+
+    await db
+      .prepare("UPDATE diary_entries SET final_text = ?, updated_at = datetime('now') WHERE user_id = ? AND date = ?")
+      .bind(finalText, userId, date)
+      .run();
+
+    return await findByUserAndDate(userId, date);
+  };
+
+  const confirmEntry = async (userId: string, date: string): Promise<DiaryEntry | null> => {
+    const existing = await findByUserAndDate(userId, date);
+    if (existing === null) {
+      return null;
+    }
+
+    await db
+      .prepare(
+        "UPDATE diary_entries SET status = 'confirmed', final_text = COALESCE(final_text, generated_text), updated_at = datetime('now') WHERE user_id = ? AND date = ?",
+      )
+      .bind(userId, date)
+      .run();
+
+    return await findByUserAndDate(userId, date);
+  };
+
+  return {
+    findByUserAndDate,
+    listRecentByUserBeforeDate,
+    listRecentByUserOnOrBeforeDate,
+    createDraftIfMissing,
+    updateFinalText,
+    confirmEntry,
+  };
+};
 
 export interface UserRepository {
   upsertUser(user: { id: string; timezone: string }): Promise<void>;
