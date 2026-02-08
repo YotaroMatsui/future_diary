@@ -217,11 +217,74 @@ flowchart TD
 
 ### [OPEN]
 
-- なし。
+- [OPEN][TODO] (MVP P0) データ削除（アカウント削除/日記削除）の実装
+  - 背景: 要件として「データ削除」を提供する必要がある。
+  - 現状: delete 系 API/UI が未提供。
+  - 受入条件:
+    - API: ユーザ単位/日記単位の削除ができ、D1 から削除される（関連データも整合）。
+    - Web: 削除導線があり、取り消し不能である旨が明示される。
+  - 根拠:
+    - `docs/requirements-ssot.md:150`
+    - `apps/api/README.md:179`
+    - `apps/web/README.md:98`
+    - `packages/db/src/migrations/0001_initial.sql:18`
+- [OPEN][TODO] (MVP P0) 認証と user identity の導入（暫定 userId 入力の置換）
+  - 背景: diary はユーザ単位のデータであり、第三者に推測/なりすましされない境界が必要。
+  - 現状: `userId` は入力値で、API は CORS `origin="*"` のため保護が弱い。
+  - 受入条件:
+    - API: `userId` を request payload から除去し、サーバ側で user を確定できる（最小は token/JWT/Access 等）。
+    - API: CORS origin を allowlist 化する（少なくとも本番は `*` を禁止）。
+    - Web: userId 入力 UI を廃止し、ログイン/識別フローに置換する。
+  - 根拠:
+    - `apps/api/src/index.ts:64`
+    - `apps/api/README.md:80`
+    - `apps/web/README.md:12`
+    - `apps/web/src/App.tsx:356`
+- [OPEN][TODO] (MVP P0) 本番デプロイ（Workers/Pages/D1/Vectorize）手順と `infra/` の整備
+  - 背景: MVP として配布するには、Cloudflare 側リソース作成とデプロイ手順が SSOT として必要。
+  - 現状: API/Jobs は `wrangler.toml` があるが、Pages を含む統一 runbook/infra が未整備。
+  - 受入条件:
+    - `infra/` か `docs/` に、本番構築とデプロイの runbook が存在し、Secrets/環境変数の管理方法が明記される。
+    - デプロイ後の smoke check（health + draft/save/confirm + web）が手順化される。
+  - 根拠:
+    - `AGENTS.md:135`
+    - `apps/api/wrangler.toml:1`
+    - `apps/api/README.md:120`
+    - `apps/web/README.md:72`
+    - `infra/wrangler/.gitkeep:1`
+- [OPEN][TODO] (MVP P0) E2E スモークテストの追加（web -> api -> d1）
+  - 背景: 要件の受け入れ基準は “統合動作” が中心で、E2E での退行検知が必要。
+  - 現状: core/api の unit test はあるが、web を含む統合 smoke が無い。
+  - 受入条件:
+    - `make` で実行できる smoke があり、少なくとも draft -> save -> confirm -> list が検証できる。
+  - 根拠:
+    - `docs/requirements-ssot.md:245`
+    - `Makefile:51`
+    - `apps/api/src/index.test.ts:156`
+- [OPEN][TODO] (MVP P1) 生成・埋め込みの非同期化（Workflows/Queues/DO lock）と再実行設計
+  - 背景: 生成は失敗耐性（リトライ/多重起動/二重生成防止）を要件として持つ。
+  - 現状: API 同期処理 + best-effort `waitUntil` に留まり、Workflows/Queues/DO lock が未導入。
+  - 受入条件:
+    - 生成/埋め込みが非同期ジョブで再実行可能になり、同一 user/day の重複実行が抑止される（ロック/状態）。
+    - API は “作成済み/処理中/失敗/完了” の状態を返せる。
+  - 根拠:
+    - `AGENTS.md:55`
+    - `AGENTS.md:66`
+    - `AGENTS.md:72`
+    - `apps/api/src/index.ts:99`
+    - `apps/jobs/README.md:1`
+- [OPEN][TODO] (MVP P1) 変更履歴（生成ドラフト/編集/確定）の保持
+  - 背景: 要件として revision 保持が推奨されており、監査/品質改善/UX 向上に効く。
+  - 現状: `diary_entries` のみで、revision のスナップショットが残らない。
+  - 受入条件:
+    - revision テーブルが追加され、生成/保存/確定時に履歴が追記される。
+  - 根拠:
+    - `docs/requirements-ssot.md:117`
+    - `packages/db/src/migrations/0001_initial.sql:9`
 
 ### [ISSUE]
 
-- 現時点で blocker はなし。
+- 現時点で blocker はなし（MVP の課題は [OPEN][TODO] に集約）。
 
 ### [SUMMARY]
 

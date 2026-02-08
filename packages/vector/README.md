@@ -220,8 +220,9 @@ flowchart TD
 
 ### [OPEN]
 
-- [OPEN] Vectorize metadata filter（`date < beforeDate`）を使う場合、対象 metadata key が index 側で indexed になっている必要がある
-  - 現状: adapter は filter 失敗時に retry するが、検索精度/性能は index 設定に依存する。
+- [OPEN] Vectorize metadata filter（`date < beforeDate`）を使う場合、対象 metadata key が index 側で metadata index 化されている必要がある
+  - 現状: adapter は filter 失敗時に retry し、client-side でも date filter を適用する（正しさは担保、性能は index 設定に依存）。
+  - 対応: `wrangler vectorize create-metadata-index <index_name> --propertyName date --type string`
   - 根拠:
     - `packages/vector/src/cloudflare.ts:124`
 

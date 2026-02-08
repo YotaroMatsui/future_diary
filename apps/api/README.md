@@ -359,17 +359,17 @@ flowchart TD
 
 | 項目         | 判定 | 理由                        | 根拠                       |
 | ------------ | ---- | --------------------------- | -------------------------- |
-| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM を境界で扱う | `apps/api/src/index.ts:75` |
+| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界で扱う | `apps/api/src/index.ts:75` |
 | 例外より型   | PARTIAL | core結果は`ok`判定、DB/LLM例外は未変換 | `apps/api/src/index.ts:228` |
 | 依存性注入   | NO   | port注入は未導入            | `apps/api/src/index.ts:111` |
 | 契約指向     | YES  | zod schema を入口契約に利用 | `apps/api/src/index.ts:15`  |
 
 ### [OPEN]
 
-- [OPEN] Vector index の backfill / reindex 戦略（jobs / cron / 手動トリガ）の確定
-  - 背景: API は upsert を best-effort で行うが、既存データの一括投入が必要。
+- [OPEN] Vector reindex の orchestration（Cron/Queues/Workflows）導入
+  - 現状: 既存データの backfill / reindex は `apps/jobs` の `POST /v1/vector/reindex` で段階実行できる（手動）。
   - 根拠:
-    - `apps/api/src/index.ts:120`
+    - `apps/jobs/src/index.ts:154`
 
 ### [ISSUE]
 

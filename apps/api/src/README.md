@@ -153,9 +153,9 @@ const response = await app.request("/health");
 - 失敗セマンティクス:
   - 400/500
 - メインフロー:
-  - parse/validate -> D1 cache read -> source fetch -> (OPENAI_API_KEYがあれば) OpenAI生成 -> (失敗/未設定なら) deterministic/fallback -> insert if missing -> return。
+  - parse/validate -> D1 cache read -> source fetch -> (AI + VECTOR_INDEX があれば) Vectorize retrieval -> (OPENAI_API_KEYがあれば) OpenAI生成 -> (失敗/未設定なら) deterministic/fallback -> insert if missing -> (best-effort) Vectorize upsert -> return。
 - I/O 境界:
-  - HTTP + D1 + 外部LLM
+  - HTTP + D1 + 外部LLM + Workers AI embeddings + Vectorize
 - トレードオフ:
   - 最小実装優先。
 
@@ -164,6 +164,7 @@ flowchart TD
   IDX["index.ts"] -->|"call"| CORE["buildFutureDiaryDraft"]
   IDX -->|"boundary(I/O)"| OA["OpenAI Responses API"]
   IDX -->|"boundary(I/O)"| D1["D1 (DB binding)"]
+  IDX -->|"boundary(I/O)"| VEC["Workers AI + Vectorize (optional)"]
   T["index.test.ts"] -->|"call"| IDX
 ```
 
@@ -200,14 +201,11 @@ flowchart TD
 
 | 項目         | 判定 | 理由           | 根拠                       |
 | ------------ | ---- | -------------- | -------------------------- |
-| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM 境界に限定 | `apps/api/src/index.ts:75` |
+| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界に限定 | `apps/api/src/index.ts:75` |
 
 ### [OPEN]
 
-- [OPEN] Vector index backfill / reindex（既存データ投入）の job 化
-  - 背景: retrieval/upsert は導入済みだが、既存データの一括投入が必要。
-  - 根拠:
-    - `apps/api/src/index.ts:120`
+- なし。
 
 ### [ISSUE]
 
