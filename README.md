@@ -234,7 +234,7 @@ flowchart TD
 
 ### [ISSUE]
 
-- 現時点で blocker はなし（MVP の課題は [OPEN][TODO] に集約）。
+- 現時点で blocker はなし。
 
 ### [SUMMARY]
 
