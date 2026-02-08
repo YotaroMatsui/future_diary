@@ -5,7 +5,7 @@ import {
   buildFutureDiaryDraftLlmUserPrompt,
   futureDiaryDraftBodyJsonSchema,
 } from "@future-diary/core";
-import { createDiaryRepository, createUserRepository } from "@future-diary/db";
+import { createDiaryRepository, createDiaryRevisionRepository, createUserRepository } from "@future-diary/db";
 import { createWorkersAiVectorizeSearchPort, searchRelevantFragments } from "@future-diary/vector";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -135,6 +135,7 @@ app.post("/v1/future-diary/draft", async (context) => {
 
   const userRepo = createUserRepository(db);
   const diaryRepo = createDiaryRepository(db);
+  const diaryRevisionRepo = createDiaryRevisionRepository(db);
 
   await userRepo.upsertUser({ id: userId, timezone });
 
@@ -326,6 +327,15 @@ app.post("/v1/future-diary/draft", async (context) => {
 
   const inserted = persistedEntry.id === newEntryId;
 
+  if (inserted) {
+    await diaryRevisionRepo.appendRevision({
+      id: crypto.randomUUID(),
+      entryId: persistedEntry.id,
+      kind: "generated",
+      body: draft.body,
+    });
+  }
+
   queueVectorizeUpsert({
     executionCtx,
     env: context.env,
@@ -441,6 +451,7 @@ app.post("/v1/diary/entry/save", async (context) => {
 
   const db = context.env.DB;
   const diaryRepo = createDiaryRepository(db);
+  const diaryRevisionRepo = createDiaryRevisionRepository(db);
   const entry = await diaryRepo.updateFinalText(parsed.data.userId, parsed.data.date, parsed.data.body);
 
   if (entry === null) {
@@ -455,6 +466,13 @@ app.post("/v1/diary/entry/save", async (context) => {
       404,
     );
   }
+
+  await diaryRevisionRepo.appendRevision({
+    id: crypto.randomUUID(),
+    entryId: entry.id,
+    kind: "saved",
+    body: parsed.data.body,
+  });
 
   const executionCtx = getOptionalExecutionContext(context);
 
@@ -513,6 +531,7 @@ app.post("/v1/diary/entry/confirm", async (context) => {
 
   const db = context.env.DB;
   const diaryRepo = createDiaryRepository(db);
+  const diaryRevisionRepo = createDiaryRevisionRepository(db);
   const entry = await diaryRepo.confirmEntry(parsed.data.userId, parsed.data.date);
 
   if (entry === null) {
@@ -527,6 +546,13 @@ app.post("/v1/diary/entry/confirm", async (context) => {
       404,
     );
   }
+
+  await diaryRevisionRepo.appendRevision({
+    id: crypto.randomUUID(),
+    entryId: entry.id,
+    kind: "confirmed",
+    body: entry.finalText ?? entry.generatedText,
+  });
 
   const executionCtx = getOptionalExecutionContext(context);
 
