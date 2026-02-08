@@ -1,5 +1,5 @@
 import type { DiaryEntry } from "@future-diary/core";
-import type { DiaryRow } from "./schema";
+import type { DiaryEntryRevisionKind, DiaryRow } from "./schema";
 
 interface D1StatementLike {
   bind(...values: unknown[]): D1StatementLike;
@@ -122,6 +122,30 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
     confirmEntry,
   };
 };
+
+export interface DiaryEntryRevision {
+  id: string;
+  entryId: string;
+  kind: DiaryEntryRevisionKind;
+  body: string;
+  createdAt: string;
+}
+
+export interface DiaryRevisionRepository {
+  appendRevision(revision: Pick<DiaryEntryRevision, "id" | "entryId" | "kind" | "body">): Promise<void>;
+}
+
+export const createDiaryRevisionRepository = (db: D1DatabaseLike): DiaryRevisionRepository => ({
+  async appendRevision(revision) {
+    await db
+      .prepare(
+        `INSERT INTO diary_entry_revisions (id, entry_id, kind, body, created_at)
+         VALUES (?, ?, ?, ?, datetime('now'))`,
+      )
+      .bind(revision.id, revision.entryId, revision.kind, revision.body)
+      .run();
+  },
+});
 
 export interface UserRepository {
   upsertUser(user: { id: string; timezone: string }): Promise<void>;

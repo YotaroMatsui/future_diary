@@ -283,16 +283,6 @@ flowchart TD
     - `AGENTS.md:72`
     - `apps/api/src/index.ts:99`
     - `apps/jobs/README.md:1`
-- [OPEN][TODO] (MVP P1) 変更履歴（生成ドラフト/編集/確定）の保持
-  - 背景: 要件として revision 保持が推奨されており、監査/品質改善/UX 向上に効く。
-  - 現状: `diary_entries` のみで、revision のスナップショットが残らない。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/diary-revisions`（`feat/diary-revisions`）
-  - 受入条件:
-    - revision テーブルが追加され、生成/保存/確定時に履歴が追記される。
-  - 根拠:
-    - `docs/requirements-ssot.md:117`
-    - `packages/db/src/migrations/0001_initial.sql:9`
 
 ### [ISSUE]
 
