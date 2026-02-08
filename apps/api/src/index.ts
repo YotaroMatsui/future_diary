@@ -5,7 +5,12 @@ import {
   buildFutureDiaryDraftLlmUserPrompt,
   futureDiaryDraftBodyJsonSchema,
 } from "@future-diary/core";
-import { createAuthSessionRepository, createDiaryRepository, createUserRepository } from "@future-diary/db";
+import {
+  createAuthSessionRepository,
+  createDiaryRepository,
+  createDiaryRevisionRepository,
+  createUserRepository,
+} from "@future-diary/db";
 import { createWorkersAiVectorizeSearchPort, searchRelevantFragments } from "@future-diary/vector";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -372,6 +377,7 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
 
   const userRepo = createUserRepository(db);
   const diaryRepo = createDiaryRepository(db);
+  const diaryRevisionRepo = createDiaryRevisionRepository(db);
 
   await userRepo.upsertUser({ id: userId, timezone });
 
@@ -563,6 +569,15 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
 
   const inserted = persistedEntry.id === newEntryId;
 
+  if (inserted) {
+    await diaryRevisionRepo.appendRevision({
+      id: crypto.randomUUID(),
+      entryId: persistedEntry.id,
+      kind: "generated",
+      body: draft.body,
+    });
+  }
+
   queueVectorizeUpsert({
     executionCtx,
     env: context.env,
@@ -682,6 +697,7 @@ app.post("/v1/diary/entry/save", requireAuth, async (context) => {
   const auth = context.get("auth") as AuthContext;
   const userId = auth.userId;
   const diaryRepo = createDiaryRepository(db);
+  const diaryRevisionRepo = createDiaryRevisionRepository(db);
   const entry = await diaryRepo.updateFinalText(userId, parsed.data.date, parsed.data.body);
 
   if (entry === null) {
@@ -696,6 +712,13 @@ app.post("/v1/diary/entry/save", requireAuth, async (context) => {
       404,
     );
   }
+
+  await diaryRevisionRepo.appendRevision({
+    id: crypto.randomUUID(),
+    entryId: entry.id,
+    kind: "saved",
+    body: parsed.data.body,
+  });
 
   const executionCtx = getOptionalExecutionContext(context);
 
@@ -756,6 +779,7 @@ app.post("/v1/diary/entry/confirm", requireAuth, async (context) => {
   const auth = context.get("auth") as AuthContext;
   const userId = auth.userId;
   const diaryRepo = createDiaryRepository(db);
+  const diaryRevisionRepo = createDiaryRevisionRepository(db);
   const entry = await diaryRepo.confirmEntry(userId, parsed.data.date);
 
   if (entry === null) {
@@ -770,6 +794,13 @@ app.post("/v1/diary/entry/confirm", requireAuth, async (context) => {
       404,
     );
   }
+
+  await diaryRevisionRepo.appendRevision({
+    id: crypto.randomUUID(),
+    entryId: entry.id,
+    kind: "confirmed",
+    body: entry.finalText ?? entry.generatedText,
+  });
 
   const executionCtx = getOptionalExecutionContext(context);
 

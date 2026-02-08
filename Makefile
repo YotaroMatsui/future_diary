@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev-api dev-web db-migrate db-migrate-remote vector-reindex build test ci lint lint-fix format format-check typecheck
+.PHONY: help install dev-api dev-web db-migrate db-migrate-remote vector-reindex build test smoke ci lint lint-fix format format-check typecheck
 
 help:
 	@echo "Available targets:"
@@ -13,6 +13,7 @@ help:
 	@echo "  make lint            Run lint commands"
 	@echo "  make lint-fix        Run lint auto-fix commands"
 	@echo "  make test            Run tests"
+	@echo "  make smoke           Run E2E smoke test (web -> api -> d1)"
 	@echo "  make typecheck       Run TypeScript type checks"
 	@echo "  make build           Run build commands"
 	@echo "  make ci              Run lint + test + typecheck + build"
@@ -45,6 +46,9 @@ lint-fix:
 
 test:
 	bun run test
+
+smoke:
+	bun run smoke
 
 typecheck:
 	bun run typecheck

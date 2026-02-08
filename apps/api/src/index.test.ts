@@ -13,6 +13,14 @@ const createInMemoryD1 = () => {
     updated_at: string;
   };
 
+  type DiaryEntryRevisionRow = {
+    id: string;
+    entry_id: string;
+    kind: "generated" | "saved" | "confirmed";
+    body: string;
+    created_at: string;
+  };
+
   type UserRow = {
     id: string;
     timezone: string;
@@ -34,6 +42,7 @@ const createInMemoryD1 = () => {
   const entries = new Map<string, DiaryRow>();
   const sessions = new Map<string, AuthSessionRow>();
   const sessionIdByTokenHash = new Map<string, string>();
+  const revisions: DiaryEntryRevisionRow[] = [];
 
   const entryKey = (userId: string, date: string) => `${userId}:${date}`;
 
@@ -145,6 +154,20 @@ const createInMemoryD1 = () => {
             return { success: true };
           }
 
+          if (query.includes("INSERT INTO diary_entry_revisions")) {
+            const [id, entryId, kind, body] = bound as [string, string, DiaryEntryRevisionRow["kind"], string];
+
+            revisions.push({
+              id,
+              entry_id: entryId,
+              kind,
+              body,
+              created_at: now(),
+            });
+
+            return { success: true };
+          }
+
           if (query.includes("UPDATE auth_sessions SET last_used_at")) {
             const [sessionId] = bound as [string];
             const existing = sessions.get(sessionId);
@@ -247,6 +270,7 @@ const createInMemoryD1 = () => {
 
       return statement;
     },
+    __data: { users, entries, revisions },
   };
 };
 
@@ -347,25 +371,30 @@ describe("future-diary-api", () => {
     const json1 = (await response1.json()) as {
       ok: boolean;
       draft?: { title: string; body: string };
-      meta?: { cached: boolean };
+      meta?: { cached: boolean; entryId: string };
     };
 
     expect(response1.status).toBe(200);
     expect(json1.ok).toBe(true);
     expect(json1.draft?.title).toBe("2026-02-07 の未来日記");
     expect(json1.meta?.cached).toBe(false);
+    expect(db.__data.revisions.length).toBe(1);
+    expect(db.__data.revisions[0]?.kind).toBe("generated");
+    expect(db.__data.revisions[0]?.entry_id).toBe(json1.meta?.entryId);
+    expect(db.__data.revisions[0]?.body).toBe(json1.draft?.body);
 
     const response2 = await app.request("/v1/future-diary/draft", requestInit, env);
     const json2 = (await response2.json()) as {
       ok: boolean;
       draft?: { title: string; body: string };
-      meta?: { cached: boolean };
+      meta?: { cached: boolean; entryId: string };
     };
 
     expect(response2.status).toBe(200);
     expect(json2.ok).toBe(true);
     expect(json2.draft?.body).toBe(json1.draft?.body);
     expect(json2.meta?.cached).toBe(true);
+    expect(db.__data.revisions.length).toBe(1);
   });
 
   test("POST /v1/diary/entry/delete deletes an entry", async () => {
@@ -549,6 +578,9 @@ describe("future-diary-api", () => {
     );
 
     expect(saveResponse.status).toBe(200);
+    expect(db.__data.revisions.length).toBe(2);
+    expect(db.__data.revisions[1]?.kind).toBe("saved");
+    expect(db.__data.revisions[1]?.body).toBe("edited body");
 
     const getResponse = await app.request(
       "/v1/diary/entry/get",
@@ -623,6 +655,8 @@ describe("future-diary-api", () => {
     const draftJson = (await draftResponse.json()) as { ok: boolean; draft?: { body: string } };
     expect(draftResponse.status).toBe(200);
     expect(draftJson.ok).toBe(true);
+    expect(db.__data.revisions.length).toBe(1);
+    expect(db.__data.revisions[0]?.kind).toBe("generated");
 
     const confirmResponse = await app.request(
       "/v1/diary/entry/confirm",
@@ -645,6 +679,9 @@ describe("future-diary-api", () => {
     expect(confirmJson.entry?.status).toBe("confirmed");
     expect(confirmJson.entry?.finalText).toBe(draftJson.draft?.body ?? null);
     expect(confirmJson.body).toBe(draftJson.draft?.body);
+    expect(db.__data.revisions.length).toBe(2);
+    expect(db.__data.revisions[1]?.kind).toBe("confirmed");
+    expect(db.__data.revisions[1]?.body).toBe(draftJson.draft?.body);
   });
 
   test("POST /v1/diary/entries/list returns recent entries", async () => {
