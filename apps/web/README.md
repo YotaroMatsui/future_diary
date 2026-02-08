@@ -9,7 +9,7 @@
   - See: `apps/api/README.md`
   - See: `packages/ui/README.md`
 - 注意:
-  - userId/timezone は暫定的に localStorage に保存する（認証導入までは入力ベース）。
+  - accessToken/timezone は localStorage に保存する（accessToken は秘密情報）。
 
 <details>
 <summary>目次</summary>
@@ -35,11 +35,11 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/main.tsx:12` — React root mount。
-- [E2] `apps/web/src/App.tsx:258` — 当日初回の draft auto load。
-- [E3] `apps/web/src/App.tsx:138` — draft API call。
-- [E4] `apps/web/src/App.tsx:186` — save API call。
-- [E5] `apps/web/src/App.tsx:214` — confirm API call。
-- [E6] `apps/web/src/App.tsx:112` — history list API call。
+- [E2] `apps/web/src/App.tsx:481` — 当日初回の draft auto load。
+- [E3] `apps/web/src/App.tsx:214` — draft API call。
+- [E4] `apps/web/src/App.tsx:259` — save API call。
+- [E5] `apps/web/src/App.tsx:287` — confirm API call。
+- [E6] `apps/web/src/App.tsx:188` — history list API call。
 </details>
 
 ## スコープ
@@ -49,7 +49,7 @@
   - 履歴閲覧 UI
   - API base URL 切替
 - 対象外（Non-goals）:
-  - 認証UI
+  - 外部IdP連携やフル機能認証（MVPは accessToken で識別）
   - リッチテキスト編集
 - 委譲（See）:
   - See: `apps/api/README.md`
@@ -63,10 +63,10 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:322` — draft 操作 UI。
-- [E2] `apps/web/src/App.tsx:362` — editor UI。
-- [E3] `apps/web/src/App.tsx:413` — history UI。
-- [E4] `apps/web/src/api.ts:104` — draft client。
+- [E1] `apps/web/src/App.tsx:634` — draft 操作 UI。
+- [E2] `apps/web/src/App.tsx:703` — editor UI。
+- [E3] `apps/web/src/App.tsx:735` — history UI。
+- [E4] `apps/web/src/api.ts:140` — draft client。
 </details>
 
 ## ローカル開発
@@ -102,17 +102,22 @@
   - 未来日記（下書き）の生成/編集/保存/確定 UI
   - 履歴閲覧 UI
 - 非提供:
-  - 認証 UI（現状は userId 入力で代替）
+  - 外部IdP連携などのフル機能認証 UI
 
 ### エントリポイント / エクスポート（SSOT）
 
 | 公開シンボル  | 種別      | 定義元        | 目的           | 根拠                     |
 | ------------- | --------- | ------------- | -------------- | ------------------------ |
-| `App`                 | component | `src/App.tsx` | UI root | `apps/web/src/App.tsx:70` |
-| `fetchFutureDiaryDraft` | function  | `src/api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:104` |
-| `saveDiaryEntry`        | function  | `src/api.ts`  | diary 保存 | `apps/web/src/api.ts:122` |
-| `confirmDiaryEntry`     | function  | `src/api.ts`  | diary 確定 | `apps/web/src/api.ts:131` |
-| `listDiaryEntries`      | function  | `src/api.ts`  | 履歴取得 | `apps/web/src/api.ts:143` |
+| `App`                 | component | `src/App.tsx` | UI root | `apps/web/src/App.tsx:85` |
+| `fetchFutureDiaryDraft` | function  | `src/api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:140` |
+| `createAuthSession`     | function  | `src/api.ts`  | session 作成 | `apps/web/src/api.ts:155` |
+| `fetchAuthMe`           | function  | `src/api.ts`  | session 検証 | `apps/web/src/api.ts:166` |
+| `logout`                | function  | `src/api.ts`  | session 破棄 | `apps/web/src/api.ts:169` |
+| `saveDiaryEntry`        | function  | `src/api.ts`  | diary 保存 | `apps/web/src/api.ts:187` |
+| `confirmDiaryEntry`     | function  | `src/api.ts`  | diary 確定 | `apps/web/src/api.ts:196` |
+| `listDiaryEntries`      | function  | `src/api.ts`  | 履歴取得 | `apps/web/src/api.ts:208` |
+| `deleteDiaryEntry`      | function  | `src/api.ts`  | diary 削除 | `apps/web/src/api.ts:219` |
+| `deleteUser`            | function  | `src/api.ts`  | user 削除 | `apps/web/src/api.ts:222` |
 
 ### 使い方（必須）
 
@@ -140,9 +145,12 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
 
 - API response 型:
   - `FutureDiaryDraftResponse`
+  - `AuthSessionCreateResponse`
+  - `AuthMeResponse`
   - `DiaryEntrySaveResponse`
   - `DiaryEntryConfirmResponse`
   - `DiaryEntriesListResponse`
+  - `DiaryEntryDeleteResponse`
 - `.env` の `VITE_API_BASE_URL`。
 
 ### 検証入口（CI / ローカル）
@@ -170,25 +178,28 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
 
 - データ形状:
   - draft:
-    - request: `{ userId, date, timezone }`
+    - auth: `Authorization: Bearer <accessToken>`
+    - request: `{ date, timezone }`
     - response: `{ ok, draft, meta }`
   - save:
-    - request: `{ userId, date, body }`
+    - request: `{ date, body }`
   - confirm:
-    - request: `{ userId, date }`
+    - request: `{ date }`
+  - delete:
+    - request: `{ date }`
   - list:
-    - request: `{ userId, onOrBeforeDate, limit }`
+    - request: `{ onOrBeforeDate, limit }`
 - 失敗セマンティクス:
   - fetch失敗時に toast を error 表示（status + API payload 整形）。
 - メインフロー:
-  - (userId/timezone が揃っていれば) mount -> 当日 draft 生成 -> editor 表示。
+  - (accessToken/timezone が揃っていれば) mount -> 当日 draft 生成 -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
 - I/O 境界:
   - browser fetch（`api.ts`）。
-  - localStorage（userId/timezone）。
+  - localStorage（accessToken/timezone）。
 - トレードオフ:
-  - 認証 UI は未導入で、userId 入力を暫定採用。
+  - accessToken を localStorage に保持する（XSS リスクは残る）。
 
 ```mermaid
 flowchart TD
@@ -201,12 +212,12 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:248` — mount時の自動生成。
-- [E2] `apps/web/src/api.ts:51` — JSON POST boundary。
-- [E3] `apps/web/src/api.ts:104` — draft client。
-- [E4] `apps/web/src/api.ts:122` — save client。
-- [E5] `apps/web/src/api.ts:131` — confirm client。
-- [E6] `apps/web/src/api.ts:143` — list client。
+- [E1] `apps/web/src/App.tsx:481` — mount時の自動生成。
+- [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
+- [E3] `apps/web/src/api.ts:140` — draft client。
+- [E4] `apps/web/src/api.ts:187` — save client。
+- [E5] `apps/web/src/api.ts:196` — confirm client。
+- [E6] `apps/web/src/api.ts:208` — list client。
 </details>
 
 ## 品質
@@ -217,14 +228,14 @@ flowchart TD
 
 | リスク            | 対策（検証入口）          | 根拠                      |
 | ----------------- | ------------------------- | ------------------------- |
-| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:162` |
-| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:33` |
-| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:381` |
+| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:195` |
+| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:43` |
+| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:699` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/api.ts:67` — 非200で例外化。
-- [E2] `apps/web/src/App.tsx:162` — 例外を toast 表示。
+- [E1] `apps/web/src/api.ts:84` — 非200で例外化。
+- [E2] `apps/web/src/App.tsx:195` — 例外を toast 表示。
 - [E3] `Makefile:50` — `make smoke` target。
 - [E4] `apps/web/e2e-smoke.test.ts:1` — E2E smoke。
 </details>
@@ -238,9 +249,9 @@ flowchart TD
 
 | 項目         | 判定 | 理由                          | 根拠                      |
 | ------------ | ---- | ----------------------------- | ------------------------- |
-| 副作用の隔離 | YES  | fetch/localStorage を境界へ分離 | `apps/web/src/api.ts:51` |
-| 不変性       | YES  | state更新は新値セットのみ     | `apps/web/src/App.tsx:83` |
-| 例外より型   | NO   | 非200を例外として扱う         | `apps/web/src/api.ts:67`  |
+| 副作用の隔離 | YES  | fetch/localStorage を境界へ分離 | `apps/web/src/api.ts:65` |
+| 不変性       | YES  | state更新は新値セットのみ     | `apps/web/src/App.tsx:707` |
+| 例外より型   | NO   | 非200を例外として扱う         | `apps/web/src/api.ts:84`  |
 
 ### [OPEN]
 

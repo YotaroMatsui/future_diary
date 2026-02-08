@@ -30,3 +30,11 @@ export interface UserRow {
   created_at: string;
   updated_at: string;
 }
+
+export interface AuthSessionRow {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  created_at: string;
+  last_used_at: string;
+}

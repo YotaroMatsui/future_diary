@@ -228,33 +228,6 @@ flowchart TD
 
 ### [OPEN]
 
-- [OPEN][TODO] (MVP P0) データ削除（アカウント削除/日記削除）の実装
-  - 背景: 要件として「データ削除」を提供する必要がある。
-  - 現状: delete 系 API/UI が未提供。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/auth-identity`（`feat/auth-identity`）に集約（認証導入と同じブランチで実施）。
-  - 受入条件:
-    - API: ユーザ単位/日記単位の削除ができ、D1 から削除される（関連データも整合）。
-    - Web: 削除導線があり、取り消し不能である旨が明示される。
-  - 根拠:
-    - `docs/requirements-ssot.md:150`
-    - `apps/api/README.md:179`
-    - `apps/web/README.md:98`
-    - `packages/db/src/migrations/0001_initial.sql:18`
-- [OPEN][TODO] (MVP P0) 認証と user identity の導入（暫定 userId 入力の置換）
-  - 背景: diary はユーザ単位のデータであり、第三者に推測/なりすましされない境界が必要。
-  - 現状: `userId` は入力値で、API は CORS `origin="*"` のため保護が弱い。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/auth-identity`（`feat/auth-identity`）
-  - 受入条件:
-    - API: `userId` を request payload から除去し、サーバ側で user を確定できる（最小は token/JWT/Access 等）。
-    - API: CORS origin を allowlist 化する（少なくとも本番は `*` を禁止）。
-    - Web: userId 入力 UI を廃止し、ログイン/識別フローに置換する。
-  - 根拠:
-    - `apps/api/src/index.ts:64`
-    - `apps/api/README.md:80`
-    - `apps/web/README.md:12`
-    - `apps/web/src/App.tsx:356`
 - [OPEN][TODO] (MVP P0) 本番デプロイ（Workers/Pages/D1/Vectorize）手順と `infra/` の整備
   - 背景: MVP として配布するには、Cloudflare 側リソース作成とデプロイ手順が SSOT として必要。
   - 現状: API/Jobs は `wrangler.toml` があるが、Pages を含む統一 runbook/infra が未整備。
@@ -291,5 +264,6 @@ flowchart TD
 ### [SUMMARY]
 
 - root は orchestration と導線だけを保持し、実装詳細は子 README に委譲する。
+- `feat/auth-identity` で bearer token session 認証 + CORS allowlist + データ削除（アカウント/日記）を実装した。
 
 </details>

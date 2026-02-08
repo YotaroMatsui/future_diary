@@ -1,6 +1,6 @@
 # packages/db
 
-`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `DiaryRevisionRepository` / `UserRepository` を提供し、`packages/core::DiaryEntry` への変換と diary/revision/user の read/write クエリを担当する。スキーマ契約は `src/migrations/*.sql` と `src/schema.ts` が SSOT。
+`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `DiaryRevisionRepository` / `UserRepository` / `AuthSessionRepository` を提供し、`packages/core::DiaryEntry` への変換と diary/revision/user/session の read/write クエリを担当する。スキーマ契約は `src/migrations/*.sql` と `src/schema.ts` が SSOT。
 
 - パス: `packages/db/README.md`
 - 状態: Implemented
@@ -30,26 +30,32 @@
 - D1 row <-> domain entry の変換を行う。
 - `findByUserAndDate` / `listRecentByUserBeforeDate` / `listRecentByUserOnOrBeforeDate` を提供する。
 - `createDraftIfMissing` / `updateFinalText` / `confirmEntry` を提供する。
+- `deleteByUserAndDate` / `deleteByUser` を提供する。
 - `appendRevision` を提供する（生成/保存/確定のスナップショット保持）。
 - `upsertUser` を提供する（`diary_entries.user_id` の FK を満たすため）。
-- migration SQL で `users` / `diary_entries` / `diary_entry_revisions` を定義する。
+- `findById` / `deleteUser` を提供する。
+- `AuthSessionRepository` を提供する（bearer token session の read/write）。
+- migration SQL で `users` / `diary_entries` / `diary_entry_revisions` / `auth_sessions` を定義する。
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/repository.ts:15` — `toDiaryEntry`。
-- [E2] `packages/db/src/repository.ts:26` — `DiaryRepository` interface。
-- [E3] `packages/db/src/repository.ts:73` — `createDraftIfMissing`。
-- [E4] `packages/db/src/repository.ts:86` — `updateFinalText`。
-- [E5] `packages/db/src/repository.ts:100` — `confirmEntry`。
-- [E6] `packages/db/src/repository.ts:138` — `appendRevision`（`createDiaryRevisionRepository`）。
-- [E7] `packages/db/src/repository.ts:154` — `upsertUser`（`createUserRepository`）。
-- [E8] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table。
-- [E9] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` — `diary_entry_revisions` table。
-- [E10] `packages/db/src/repository.ts:44` — `toDiaryEntry` call。
+- [E2] `packages/db/src/repository.ts:58` — `DiaryRepository` interface。
+- [E3] `packages/db/src/repository.ts:107` — `createDraftIfMissing`。
+- [E4] `packages/db/src/repository.ts:120` — `updateFinalText`。
+- [E5] `packages/db/src/repository.ts:134` — `confirmEntry`。
+- [E6] `packages/db/src/repository.ts:150` — `deleteByUserAndDate`。
+- [E7] `packages/db/src/repository.ts:188` — `createDiaryRevisionRepository`。
+- [E8] `packages/db/src/repository.ts:200` — `UserRepository` interface。
+- [E9] `packages/db/src/repository.ts:244` — `AuthSessionRepository` interface。
+- [E10] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table。
+- [E11] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` — `diary_entry_revisions` table。
+- [E12] `packages/db/src/migrations/0003_auth_sessions.sql:1` — `auth_sessions` table。
+- [E13] `packages/db/src/repository.ts:78` — `toDiaryEntry` call。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
   - `findByUserAndDate` -> `toDiaryEntry`:
-    - call: [E10] `packages/db/src/repository.ts:44`
+    - call: [E13] `packages/db/src/repository.ts:78`
     - def: [E1] `packages/db/src/repository.ts:15`
 
 </details>
@@ -108,8 +114,12 @@
 
 - 提供:
   - `createDiaryRepository`
+  - `createDiaryRevisionRepository`
   - `createUserRepository`
+  - `createAuthSessionRepository`
   - `DiaryRow` / `UserRow`
+  - `DiaryEntryRevisionRow`
+  - `AuthSessionRow`
 - 非提供:
   - DB connection lifecycle
 
@@ -117,13 +127,17 @@
 
 | 公開シンボル            | 種別      | 定義元              | 目的              | 根拠                                            |
 | ----------------------- | --------- | ------------------- | ----------------- | ----------------------------------------------- |
-| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:35`              |
-| `createDiaryRevisionRepository` | function  | `src/repository.ts` | revision 追記 | `packages/db/src/repository.ts:138`              |
-| `createUserRepository`  | function  | `src/repository.ts` | D1 user upsert    | `packages/db/src/repository.ts:154`              |
+| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:69`              |
+| `createDiaryRevisionRepository` | function  | `src/repository.ts` | revision 追記 | `packages/db/src/repository.ts:188`              |
+| `createUserRepository`  | function  | `src/repository.ts` | D1 user read/write | `packages/db/src/repository.ts:206`              |
+| `createAuthSessionRepository` | function | `src/repository.ts` | D1 auth session | `packages/db/src/repository.ts:252` |
 | `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:7`                   |
+| `UserRow`               | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:26`                  |
 | `DiaryEntryRevisionRow` | interface | `src/schema.ts`     | revision row契約  | `packages/db/src/schema.ts:18`                   |
+| `AuthSessionRow`        | interface | `src/schema.ts`     | auth session row契約 | `packages/db/src/schema.ts:34`                  |
 | `0001_initial.sql`      | migration | `src/migrations`    | schema初期化      | `packages/db/src/migrations/0001_initial.sql:1` |
 | `0002_diary_entry_revisions.sql` | migration | `src/migrations`    | revision 追加     | `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` |
+| `0003_auth_sessions.sql` | migration | `src/migrations`    | auth session追加  | `packages/db/src/migrations/0003_auth_sessions.sql:1` |
 
 ### 使い方（必須）
 
@@ -197,9 +211,9 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/db/src/repository.ts:38`
-- [E2] `packages/db/src/repository.ts:44`
-- [E3] `packages/db/src/repository.ts:73`
+- [E1] `packages/db/src/repository.ts:72`
+- [E2] `packages/db/src/repository.ts:78`
+- [E3] `packages/db/src/repository.ts:107`
 </details>
 
 ## 品質
@@ -217,7 +231,7 @@ flowchart TD
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/repository.ts:15`
-- [E2] `packages/db/src/repository.ts:73`
+- [E2] `packages/db/src/repository.ts:107`
 - [E3] `packages/db/src/migrations/0001_initial.sql:19`
 </details>
 
@@ -230,9 +244,9 @@ flowchart TD
 
 | 項目               | 判定 | 理由                                  | 根拠                               |
 | ------------------ | ---- | ------------------------------------- | ---------------------------------- |
-| 副作用の隔離       | YES  | D1呼び出しを repository に限定        | `packages/db/src/repository.ts:35` |
+| 副作用の隔離       | YES  | D1呼び出しを repository に限定        | `packages/db/src/repository.ts:69` |
 | データと計算の分離 | YES  | `schema.ts` と `repository.ts` を分離 | `packages/db/src/schema.ts:1`      |
-| 例外より型         | NO   | DB例外をそのまま伝播                  | `packages/db/src/repository.ts:36` |
+| 例外より型         | NO   | DB例外をそのまま伝播                  | `packages/db/src/repository.ts:71` |
 
 ### [OPEN]
 
@@ -242,7 +256,7 @@ flowchart TD
   - 受入条件:
     - 境界で例外をドメインエラーへ変換。
   - 根拠:
-    - `packages/db/src/repository.ts:36`
+    - `packages/db/src/repository.ts:71`
 
 ### [ISSUE]
 

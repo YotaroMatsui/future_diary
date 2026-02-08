@@ -33,6 +33,7 @@
 - [E1] `packages/db/src/migrations/0001_initial.sql:1`
 - [E2] `packages/db/src/migrations/0001_initial.sql:9`
 - [E3] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1`
+- [E4] `packages/db/src/migrations/0003_auth_sessions.sql:1`
 </details>
 
 ## スコープ
@@ -40,6 +41,7 @@
 - 対象（In scope）:
   - `0001_initial.sql`
   - `0002_diary_entry_revisions.sql`
+  - `0003_auth_sessions.sql`
 - 対象外（Non-goals）:
   - query layer
 - 委譲（See）:
@@ -76,6 +78,7 @@
 └── packages/db/src/migrations/
     ├── 0001_initial.sql         # 初期スキーマ
     ├── 0002_diary_entry_revisions.sql # diary entry revision snapshots
+    ├── 0003_auth_sessions.sql   # auth session（bearer token）スキーマ
     └── README.md                # この文書
 ```
 
@@ -94,6 +97,7 @@
 | ------------------ | ------------ | ------------------ | ------------ | ----------------------------------------------- |
 | `0001_initial.sql` | SQL contract | `0001_initial.sql` | schema初期化 | `packages/db/src/migrations/0001_initial.sql:1` |
 | `0002_diary_entry_revisions.sql` | SQL contract | `0002_diary_entry_revisions.sql` | revision 追加 | `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` |
+| `0003_auth_sessions.sql` | SQL contract | `0003_auth_sessions.sql` | auth session 追加 | `packages/db/src/migrations/0003_auth_sessions.sql:1` |
 
 ### 使い方（必須）
 
@@ -121,6 +125,7 @@ bun run --cwd packages/db migrate-remote
 
 - `0001_initial.sql`
 - `0002_diary_entry_revisions.sql`
+- `0003_auth_sessions.sql`
 
 ### 検証入口（CI / ローカル）
 
@@ -141,7 +146,7 @@ bun run --cwd packages/db migrate-remote
 ## 設計ノート
 
 - データ形状:
-  - users, diary_entries, diary_entry_revisions table
+  - users, diary_entries, diary_entry_revisions, auth_sessions table
 - 失敗セマンティクス:
   - SQL errorで失敗
 - メインフロー:
@@ -156,6 +161,7 @@ flowchart TD
   SQL["0001_initial.sql"] -->|"contract"| U["users"]
   SQL -->|"contract"| D["diary_entries"]
   SQL2["0002_diary_entry_revisions.sql"] -->|"contract"| DR["diary_entry_revisions"]
+  SQL3["0003_auth_sessions.sql"] -->|"contract"| AS["auth_sessions"]
 ```
 
 <details><summary>根拠（Evidence）</summary>
@@ -163,6 +169,7 @@ flowchart TD
 - [E1] `packages/db/src/migrations/0001_initial.sql:1`
 - [E2] `packages/db/src/migrations/0001_initial.sql:9`
 - [E3] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1`
+- [E4] `packages/db/src/migrations/0003_auth_sessions.sql:1`
 </details>
 
 ## 品質
@@ -194,7 +201,7 @@ flowchart TD
 
 - [OPEN][TODO] 追加 migration 設計
   - 背景: 今後の diary仕様拡張
-  - 現状: 初期版 + revision 追加まで
+  - 現状: 初期版 + revision + auth_sessions 追加まで
   - 受入条件:
     - 変更ごとに番号付き migration 追加
   - 根拠:

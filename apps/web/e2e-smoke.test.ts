@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import { app as apiApp } from "../api/src/index";
 import {
   confirmDiaryEntry,
+  createAuthSession,
   fetchFutureDiaryDraft,
   fetchHealth,
   listDiaryEntries,
@@ -97,27 +98,32 @@ test("E2E smoke (web -> api -> d1): draft -> save -> confirm -> list", async () 
     const health = await fetchHealth(baseUrl);
     expect(health.ok).toBe(true);
 
-    const userId = `e2e-${crypto.randomUUID()}`;
     const date = "2026-02-07";
     const timezone = "Asia/Tokyo";
 
-    const draft = await fetchFutureDiaryDraft(baseUrl, { userId, date, timezone });
+    const session = await createAuthSession(baseUrl, { timezone });
+    expect(session.ok).toBe(true);
+
+    const accessToken = session.accessToken;
+    const userId = session.user.id;
+
+    const draft = await fetchFutureDiaryDraft(baseUrl, accessToken, { date, timezone });
     expect(draft.ok).toBe(true);
     expect(draft.meta.userId).toBe(userId);
     expect(draft.meta.status).toBe("draft");
     expect(draft.draft.body.length).toBeGreaterThan(0);
 
     const editedBody = "edited body (e2e smoke)";
-    const saved = await saveDiaryEntry(baseUrl, { userId, date, body: editedBody });
+    const saved = await saveDiaryEntry(baseUrl, accessToken, { date, body: editedBody });
     expect(saved.ok).toBe(true);
     expect(saved.body).toBe(editedBody);
 
-    const confirmed = await confirmDiaryEntry(baseUrl, { userId, date });
+    const confirmed = await confirmDiaryEntry(baseUrl, accessToken, { date });
     expect(confirmed.ok).toBe(true);
     expect(confirmed.entry.status).toBe("confirmed");
     expect(confirmed.body).toBe(editedBody);
 
-    const listed = await listDiaryEntries(baseUrl, { userId, onOrBeforeDate: date, limit: 30 });
+    const listed = await listDiaryEntries(baseUrl, accessToken, { onOrBeforeDate: date, limit: 30 });
     expect(listed.ok).toBe(true);
     expect(listed.entries.length).toBeGreaterThanOrEqual(1);
     expect(listed.entries[0]?.date).toBe(date);

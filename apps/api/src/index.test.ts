@@ -29,9 +29,19 @@ const createInMemoryD1 = () => {
     updated_at: string;
   };
 
+  type AuthSessionRow = {
+    id: string;
+    user_id: string;
+    token_hash: string;
+    created_at: string;
+    last_used_at: string;
+  };
+
   const now = () => new Date().toISOString();
   const users = new Map<string, UserRow>();
   const entries = new Map<string, DiaryRow>();
+  const sessions = new Map<string, AuthSessionRow>();
+  const sessionIdByTokenHash = new Map<string, string>();
   const revisions: DiaryEntryRevisionRow[] = [];
 
   const entryKey = (userId: string, date: string) => `${userId}:${date}`;
@@ -52,6 +62,15 @@ const createInMemoryD1 = () => {
           ) {
             const [userId, date] = bound as [string, string];
             return (entries.get(entryKey(userId, date)) ?? null) as T | null;
+          }
+          if (query.includes("FROM users") && query.includes("WHERE id = ?")) {
+            const [id] = bound as [string];
+            return (users.get(id) ?? null) as T | null;
+          }
+          if (query.includes("FROM auth_sessions") && query.includes("WHERE token_hash = ?")) {
+            const [tokenHash] = bound as [string];
+            const sessionId = sessionIdByTokenHash.get(tokenHash);
+            return (sessionId ? sessions.get(sessionId) ?? null : null) as T | null;
           }
           return null;
         },
@@ -100,6 +119,21 @@ const createInMemoryD1 = () => {
             return { success: true };
           }
 
+          if (query.includes("INSERT INTO auth_sessions")) {
+            const [id, userId, tokenHash] = bound as [string, string, string];
+
+            sessions.set(id, {
+              id,
+              user_id: userId,
+              token_hash: tokenHash,
+              created_at: now(),
+              last_used_at: now(),
+            });
+            sessionIdByTokenHash.set(tokenHash, id);
+
+            return { success: true };
+          }
+
           if (query.includes("INSERT INTO diary_entries")) {
             const [id, userId, date, generatedText] = bound as [string, string, string, string];
             const key = entryKey(userId, date);
@@ -134,6 +168,20 @@ const createInMemoryD1 = () => {
             return { success: true };
           }
 
+          if (query.includes("UPDATE auth_sessions SET last_used_at")) {
+            const [sessionId] = bound as [string];
+            const existing = sessions.get(sessionId);
+
+            if (existing) {
+              sessions.set(sessionId, {
+                ...existing,
+                last_used_at: now(),
+              });
+            }
+
+            return { success: true };
+          }
+
           if (query.includes("UPDATE diary_entries SET final_text")) {
             const [finalText, userId, date] = bound as [string | null, string, string];
             const key = entryKey(userId, date);
@@ -147,6 +195,55 @@ const createInMemoryD1 = () => {
               });
             }
 
+            return { success: true };
+          }
+
+          if (query.includes("DELETE FROM auth_sessions") && query.includes("WHERE id = ?")) {
+            const [sessionId] = bound as [string];
+            const existing = sessions.get(sessionId);
+
+            if (existing) {
+              sessions.delete(sessionId);
+              sessionIdByTokenHash.delete(existing.token_hash);
+            }
+
+            return { success: true };
+          }
+
+          if (query.includes("DELETE FROM auth_sessions") && query.includes("WHERE user_id = ?")) {
+            const [userId] = bound as [string];
+
+            for (const session of sessions.values()) {
+              if (session.user_id === userId) {
+                sessions.delete(session.id);
+                sessionIdByTokenHash.delete(session.token_hash);
+              }
+            }
+
+            return { success: true };
+          }
+
+          if (query.includes("DELETE FROM diary_entries") && query.includes("WHERE user_id = ? AND date = ?")) {
+            const [userId, date] = bound as [string, string];
+            entries.delete(entryKey(userId, date));
+            return { success: true };
+          }
+
+          if (query.includes("DELETE FROM diary_entries") && query.includes("WHERE user_id = ?")) {
+            const [userId] = bound as [string];
+
+            for (const key of entries.keys()) {
+              if (key.startsWith(`${userId}:`)) {
+                entries.delete(key);
+              }
+            }
+
+            return { success: true };
+          }
+
+          if (query.includes("DELETE FROM users") && query.includes("WHERE id = ?")) {
+            const [userId] = bound as [string];
+            users.delete(userId);
             return { success: true };
           }
 
@@ -177,6 +274,31 @@ const createInMemoryD1 = () => {
   };
 };
 
+const createAuthSession = async (env: { DB: D1Database }, timezone = "Asia/Tokyo"): Promise<string> => {
+  const response = await app.request(
+    "/v1/auth/session",
+    {
+      method: "POST",
+      body: JSON.stringify({ timezone }),
+      headers: { "content-type": "application/json" },
+    },
+    env,
+  );
+
+  const json = (await response.json()) as { ok?: boolean; accessToken?: string };
+
+  if (!response.ok || json.ok !== true || typeof json.accessToken !== "string") {
+    throw new Error(`Failed to create auth session: ${response.status}`);
+  }
+
+  return json.accessToken;
+};
+
+const authJsonHeaders = (accessToken: string) => ({
+  "content-type": "application/json",
+  authorization: `Bearer ${accessToken}`,
+});
+
 describe("future-diary-api", () => {
   test("GET /health returns ok", async () => {
     const response = await app.request("/health");
@@ -187,20 +309,62 @@ describe("future-diary-api", () => {
     expect(json.service).toBe("future-diary-api");
   });
 
+  test("POST /v1/auth/session creates session and GET /v1/auth/me returns user", async () => {
+    const db = createInMemoryD1();
+    const env = { DB: db as unknown as D1Database };
+
+    const createResponse = await app.request(
+      "/v1/auth/session",
+      {
+        method: "POST",
+        body: JSON.stringify({ timezone: "Asia/Tokyo" }),
+        headers: { "content-type": "application/json" },
+      },
+      env,
+    );
+
+    const createJson = (await createResponse.json()) as {
+      ok: boolean;
+      accessToken?: string;
+      user?: { id?: string; timezone?: string };
+    };
+
+    expect(createResponse.status).toBe(200);
+    expect(createJson.ok).toBe(true);
+    expect(typeof createJson.accessToken).toBe("string");
+    expect(typeof createJson.user?.id).toBe("string");
+    expect(createJson.user?.timezone).toBe("Asia/Tokyo");
+
+    const accessToken = createJson.accessToken as string;
+
+    const meResponse = await app.request(
+      "/v1/auth/me",
+      {
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+
+    const meJson = (await meResponse.json()) as { ok: boolean; user?: { id?: string; timezone?: string } };
+
+    expect(meResponse.status).toBe(200);
+    expect(meJson.ok).toBe(true);
+    expect(meJson.user?.id).toBe(createJson.user?.id);
+    expect(meJson.user?.timezone).toBe("Asia/Tokyo");
+  });
+
   test("POST /v1/future-diary/draft returns generated draft and caches it", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
 
     const requestInit = {
       method: "POST",
       body: JSON.stringify({
-        userId: "user-1",
         date: "2026-02-07",
         timezone: "Asia/Tokyo",
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: authJsonHeaders(accessToken),
     } as const;
 
     const response1 = await app.request("/v1/future-diary/draft", requestInit, env);
@@ -231,6 +395,88 @@ describe("future-diary-api", () => {
     expect(json2.draft?.body).toBe(json1.draft?.body);
     expect(json2.meta?.cached).toBe(true);
     expect(db.__data.revisions.length).toBe(1);
+  });
+
+  test("POST /v1/diary/entry/delete deletes an entry", async () => {
+    const db = createInMemoryD1();
+    const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
+
+    await app.request(
+      "/v1/future-diary/draft",
+      {
+        method: "POST",
+        body: JSON.stringify({ date: "2026-02-07", timezone: "Asia/Tokyo" }),
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+
+    const deleteResponse = await app.request(
+      "/v1/diary/entry/delete",
+      {
+        method: "POST",
+        body: JSON.stringify({ date: "2026-02-07" }),
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+
+    const deleteJson = (await deleteResponse.json()) as { ok: boolean; deleted?: boolean };
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteJson.ok).toBe(true);
+    expect(deleteJson.deleted).toBe(true);
+
+    const getResponse = await app.request(
+      "/v1/diary/entry/get",
+      {
+        method: "POST",
+        body: JSON.stringify({ date: "2026-02-07" }),
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+
+    expect(getResponse.status).toBe(404);
+  });
+
+  test("POST /v1/user/delete deletes user data and invalidates token", async () => {
+    const db = createInMemoryD1();
+    const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
+
+    await app.request(
+      "/v1/future-diary/draft",
+      {
+        method: "POST",
+        body: JSON.stringify({ date: "2026-02-07", timezone: "Asia/Tokyo" }),
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+
+    const deleteResponse = await app.request(
+      "/v1/user/delete",
+      {
+        method: "POST",
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+
+    const deleteJson = (await deleteResponse.json()) as { ok: boolean };
+    expect(deleteResponse.status).toBe(200);
+    expect(deleteJson.ok).toBe(true);
+
+    const meResponse = await app.request(
+      "/v1/auth/me",
+      {
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+
+    expect(meResponse.status).toBe(401);
   });
 
   test("POST /v1/future-diary/draft uses OpenAI when OPENAI_API_KEY is set", async () => {
@@ -276,16 +522,17 @@ describe("future-diary-api", () => {
         OPENAI_MODEL: "gpt-4o-mini",
       };
 
+      const accessToken = await createAuthSession(env);
+
       const response = await app.request(
         "/v1/future-diary/draft",
         {
           method: "POST",
           body: JSON.stringify({
-            userId: "user-1",
             date: "2026-02-07",
             timezone: "Asia/Tokyo",
           }),
-          headers: { "content-type": "application/json" },
+          headers: authJsonHeaders(accessToken),
         },
         env,
       );
@@ -308,13 +555,14 @@ describe("future-diary-api", () => {
   test("POST /v1/diary/entry/save persists edits and GET returns the edited body", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
 
     await app.request(
       "/v1/future-diary/draft",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", date: "2026-02-07", timezone: "Asia/Tokyo" }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: "2026-02-07", timezone: "Asia/Tokyo" }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
@@ -323,8 +571,8 @@ describe("future-diary-api", () => {
       "/v1/diary/entry/save",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", date: "2026-02-07", body: "edited body" }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: "2026-02-07", body: "edited body" }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
@@ -338,8 +586,8 @@ describe("future-diary-api", () => {
       "/v1/diary/entry/get",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", date: "2026-02-07" }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: "2026-02-07" }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
@@ -353,17 +601,15 @@ describe("future-diary-api", () => {
   test("POST /v1/future-diary/draft returns edited body when entry was saved", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
 
     const requestInit = {
       method: "POST",
       body: JSON.stringify({
-        userId: "user-1",
         date: "2026-02-07",
         timezone: "Asia/Tokyo",
       }),
-      headers: {
-        "content-type": "application/json",
-      },
+      headers: authJsonHeaders(accessToken),
     } as const;
 
     await app.request("/v1/future-diary/draft", requestInit, env);
@@ -372,8 +618,8 @@ describe("future-diary-api", () => {
       "/v1/diary/entry/save",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", date: "2026-02-07", body: "edited body" }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: "2026-02-07", body: "edited body" }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
@@ -394,13 +640,14 @@ describe("future-diary-api", () => {
   test("POST /v1/diary/entry/confirm marks entry as confirmed and keeps body editable", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
 
     const draftResponse = await app.request(
       "/v1/future-diary/draft",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", date: "2026-02-07", timezone: "Asia/Tokyo" }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: "2026-02-07", timezone: "Asia/Tokyo" }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
@@ -415,8 +662,8 @@ describe("future-diary-api", () => {
       "/v1/diary/entry/confirm",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", date: "2026-02-07" }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: "2026-02-07" }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
@@ -440,13 +687,14 @@ describe("future-diary-api", () => {
   test("POST /v1/diary/entries/list returns recent entries", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
 
     await app.request(
       "/v1/future-diary/draft",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", date: "2026-02-07", timezone: "Asia/Tokyo" }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: "2026-02-07", timezone: "Asia/Tokyo" }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
@@ -455,8 +703,8 @@ describe("future-diary-api", () => {
       "/v1/future-diary/draft",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", date: "2026-02-06", timezone: "Asia/Tokyo" }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ date: "2026-02-06", timezone: "Asia/Tokyo" }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
@@ -465,8 +713,8 @@ describe("future-diary-api", () => {
       "/v1/diary/entries/list",
       {
         method: "POST",
-        body: JSON.stringify({ userId: "user-1", onOrBeforeDate: "2026-02-07", limit: 10 }),
-        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ onOrBeforeDate: "2026-02-07", limit: 10 }),
+        headers: authJsonHeaders(accessToken),
       },
       env,
     );
