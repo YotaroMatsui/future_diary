@@ -8,6 +8,7 @@
 - 関連:
   - See: `apps/README.md`
   - See: `packages/README.md`
+  - See: `infra/README.md`
   - See: `docs/project-structure.md`
 - 注意:
   - 断定は根拠（Evidence）で裏付ける。
@@ -67,8 +68,8 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `docs/project-structure.md:16` — `apps/` 配下構成。
-- [E2] `docs/project-structure.md:26` — `packages/` 配下構成。
+- [E1] `docs/project-structure.md:17` — `apps/` 配下構成。
+- [E2] `docs/project-structure.md:45` — `packages/` 配下構成。
 </details>
 
 ## ローカル開発
@@ -93,6 +94,7 @@
 .
 ├── apps/                         # 実行アプリ / See: apps/README.md
 ├── packages/                     # 共有モジュール / See: packages/README.md
+├── infra/                        # Cloudflare設定/運用 / See: infra/README.md
 ├── docs/                         # 設計/仕様ドキュメント
 ├── Makefile                      # 共通コマンド入口
 ├── package.json                  # workspace定義とscripts
@@ -244,20 +246,6 @@ flowchart TD
     - `apps/api/README.md:80`
     - `apps/web/README.md:12`
     - `apps/web/src/App.tsx:356`
-- [OPEN][TODO] (MVP P0) 本番デプロイ（Workers/Pages/D1/Vectorize）手順と `infra/` の整備
-  - 背景: MVP として配布するには、Cloudflare 側リソース作成とデプロイ手順が SSOT として必要。
-  - 現状: API/Jobs は `wrangler.toml` があるが、Pages を含む統一 runbook/infra が未整備。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/prod-deploy-runbook`（`docs/prod-deploy-runbook`）
-  - 受入条件:
-    - `infra/` か `docs/` に、本番構築とデプロイの runbook が存在し、Secrets/環境変数の管理方法が明記される。
-    - デプロイ後の smoke check（health + draft/save/confirm + web）が手順化される。
-  - 根拠:
-    - `AGENTS.md:135`
-    - `apps/api/wrangler.toml:1`
-    - `apps/api/README.md:120`
-    - `apps/web/README.md:72`
-    - `infra/wrangler/.gitkeep:1`
 - [OPEN][TODO] (MVP P0) E2E スモークテストの追加（web -> api -> d1）
   - 背景: 要件の受け入れ基準は “統合動作” が中心で、E2E での退行検知が必要。
   - 現状: core/api の unit test はあるが、web を含む統合 smoke が無い。
@@ -301,5 +289,6 @@ flowchart TD
 ### [SUMMARY]
 
 - root は orchestration と導線だけを保持し、実装詳細は子 README に委譲する。
+- 本番デプロイ runbook は `infra/prod-deploy-runbook.md` に集約する。
 
 </details>

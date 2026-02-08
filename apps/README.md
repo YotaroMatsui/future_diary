@@ -33,7 +33,7 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `docs/project-structure.md:16` — `apps/` の子構成。
+- [E1] `docs/project-structure.md:17` — `apps/` の子構成。
 </details>
 
 ## スコープ
@@ -56,9 +56,9 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `docs/project-structure.md:17`
-- [E2] `docs/project-structure.md:20`
-- [E3] `docs/project-structure.md:24`
+- [E1] `docs/project-structure.md:19`
+- [E2] `docs/project-structure.md:29`
+- [E3] `docs/project-structure.md:37`
 </details>
 
 ## ローカル開発
@@ -164,7 +164,9 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `docs/project-structure.md:16`
+- [E1] `docs/project-structure.md:19`
+- [E2] `docs/project-structure.md:29`
+- [E3] `docs/project-structure.md:37`
 </details>
 
 ## 品質

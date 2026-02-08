@@ -34,7 +34,7 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `docs/project-structure.md:26` — `packages/` 配下。
+- [E1] `docs/project-structure.md:45` — `packages/` 配下。
 </details>
 
 ## スコープ
@@ -166,7 +166,10 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `docs/project-structure.md:26`
+- [E1] `docs/project-structure.md:47`
+- [E2] `docs/project-structure.md:57`
+- [E3] `docs/project-structure.md:67`
+- [E4] `docs/project-structure.md:75`
 </details>
 
 ## 品質

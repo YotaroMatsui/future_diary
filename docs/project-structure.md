@@ -78,6 +78,11 @@
 │           ├── README.md
 │           ├── index.ts
 │           └── statusLabel.ts
+├── infra/
+│   ├── README.md
+│   ├── prod-deploy-runbook.md
+│   └── wrangler/
+│       └── .gitkeep
 ├── docs/
 │   ├── requirements-ssot.md
 │   └── project-structure.md
@@ -103,5 +108,6 @@
   - 現在の index config: dimensions=1024, metric=cosine（確認: `bunx wrangler vectorize info future-diary-index --json`）
   - dimensions は `AI_EMBEDDING_MODEL`（Workers AI embeddings）の出力次元と一致させる（不一致の場合 retrieval は fallback され、upsert は失敗してログに落ちる）。
   - server-side の `date < beforeDate` filter を使う場合は metadata index を作成する（例: `bunx wrangler vectorize create-metadata-index future-diary-index --propertyName date --type string`）。
+- 本番構築/デプロイの runbook は `infra/prod-deploy-runbook.md` が SSOT。
 - 現在のCI前提コマンドは `bun` 導入済み環境を前提とする。
 - README は親を導線、子を詳細として責務分離している。
