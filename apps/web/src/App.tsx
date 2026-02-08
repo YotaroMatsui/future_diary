@@ -1,12 +1,22 @@
 import { diaryStatusLabel } from "@future-diary/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DiaryEntryWithBody, DiaryStatus, FutureDiaryDraftResponse } from "./api";
-import { confirmDiaryEntry, fetchFutureDiaryDraft, listDiaryEntries, saveDiaryEntry } from "./api";
+import {
+  confirmDiaryEntry,
+  createAuthSession,
+  deleteDiaryEntry,
+  deleteUser,
+  fetchAuthMe,
+  fetchFutureDiaryDraft,
+  listDiaryEntries,
+  logout,
+  saveDiaryEntry,
+} from "./api";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
 
 const storageKeys = {
-  userId: "futureDiary.userId",
+  accessToken: "futureDiary.accessToken",
   timezone: "futureDiary.timezone",
 } as const;
 
@@ -67,15 +77,26 @@ type ToastState = {
   message: string;
 } | null;
 
+type AuthUser = {
+  id: string;
+  timezone: string;
+};
+
 export const App = () => {
   const defaultTimezone = useMemo(() => {
     const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone;
     return typeof resolved === "string" && resolved.length > 0 ? resolved : "Asia/Tokyo";
   }, []);
 
-  const [userId, setUserId] = useState(() => readLocalStorageString(storageKeys.userId) ?? "");
   const [timezone, setTimezone] = useState(() => readLocalStorageString(storageKeys.timezone) ?? defaultTimezone);
   const [selectedDate, setSelectedDate] = useState(() => formatDateInTimeZone(new Date(), timezone));
+
+  const [accessToken, setAccessToken] = useState(() => readLocalStorageString(storageKeys.accessToken) ?? "");
+  const [accessTokenInput, setAccessTokenInput] = useState("");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  const [autoLoadPending, setAutoLoadPending] = useState(true);
 
   const [entryId, setEntryId] = useState<string | null>(null);
   const [status, setStatus] = useState<DiaryStatus | null>(null);
@@ -90,15 +111,70 @@ export const App = () => {
   const [draftLoading, setDraftLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [deleteEntryLoading, setDeleteEntryLoading] = useState(false);
+  const [deleteUserLoading, setDeleteUserLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
 
-  const todayDate = useMemo(() => formatDateInTimeZone(new Date(), timezone), [timezone]);
-
-  const userIdTrim = userId.trim();
   const timezoneTrim = timezone.trim();
-  const canCallApi = userIdTrim.length > 0 && timezoneTrim.length > 0;
+  const accessTokenTrim = accessToken.trim();
+  const isAuthenticated = accessTokenTrim.length > 0 && authUser !== null;
+  const canCallApi = isAuthenticated && timezoneTrim.length > 0;
   const hasLoadedEntry = entryId !== null && status !== null;
+
+  const todayDate = useMemo(() => formatDateInTimeZone(new Date(), timezoneTrim), [timezoneTrim]);
+
+  const resetEntryState = useCallback((): void => {
+    setEntryId(null);
+    setStatus(null);
+    setTitle("未来日記");
+    setBody("");
+    setSourceFragmentIds([]);
+    setDraftMeta(null);
+    setDirty(false);
+  }, []);
+
+  useEffect(() => {
+    writeLocalStorageString(storageKeys.timezone, timezoneTrim);
+  }, [timezoneTrim]);
+
+  useEffect(() => {
+    writeLocalStorageString(storageKeys.accessToken, accessTokenTrim);
+  }, [accessTokenTrim]);
+
+  useEffect(() => {
+    // User boundary changed: clear state and allow a single auto-load again.
+    resetEntryState();
+    setHistory([]);
+    setAutoLoadPending(true);
+  }, [accessTokenTrim, resetEntryState]);
+
+  useEffect(() => {
+    if (accessTokenTrim.length === 0) {
+      setAuthUser(null);
+      setAuthLoading(false);
+      return;
+    }
+
+    if (authUser !== null) {
+      return;
+    }
+
+    setAuthLoading(true);
+    void (async () => {
+      try {
+        const me = await fetchAuthMe(apiBaseUrl, accessTokenTrim);
+        setAuthUser(me.user);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "unknown error";
+        setToast({ kind: "error", message: `ログインに失敗しました: ${errorMessage}` });
+        setAccessToken("");
+        setAuthUser(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    })();
+  }, [accessTokenTrim, authUser]);
 
   const refreshHistory = useCallback(
     async (opts?: { onOrBeforeDate?: string }): Promise<void> => {
@@ -109,8 +185,7 @@ export const App = () => {
 
       setHistoryLoading(true);
       try {
-        const response = await listDiaryEntries(apiBaseUrl, {
-          userId: userIdTrim,
+        const response = await listDiaryEntries(apiBaseUrl, accessTokenTrim, {
           onOrBeforeDate: opts?.onOrBeforeDate,
           limit: 30,
         });
@@ -122,21 +197,21 @@ export const App = () => {
         setHistoryLoading(false);
       }
     },
-    [canCallApi, userIdTrim],
+    [accessTokenTrim, canCallApi],
   );
 
   const loadDraft = useCallback(
     async (opts: { date: string; reason: "auto" | "manual" }): Promise<void> => {
       if (!canCallApi) {
-        setToast({ kind: "error", message: "userId と timezone を入力してください。" });
+        setToast({ kind: "error", message: "ログインしてください。" });
         return;
       }
 
+      setAutoLoadPending(false);
       setDraftLoading(true);
       setToast(opts.reason === "auto" ? null : { kind: "info", message: "未来日記を生成しています..." });
       try {
-        const response = await fetchFutureDiaryDraft(apiBaseUrl, {
-          userId: userIdTrim,
+        const response = await fetchFutureDiaryDraft(apiBaseUrl, accessTokenTrim, {
           date: opts.date,
           timezone: timezoneTrim,
         });
@@ -155,9 +230,7 @@ export const App = () => {
         setToast({
           kind: "info",
           message:
-            response.meta.source === "cached"
-              ? "既存の日記を読み込みました。"
-              : "新しい未来日記（下書き）を作成しました。",
+            response.meta.source === "cached" ? "既存の日記を読み込みました。" : "新しい未来日記（下書き）を作成しました。",
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "unknown error";
@@ -166,12 +239,12 @@ export const App = () => {
         setDraftLoading(false);
       }
     },
-    [canCallApi, refreshHistory, timezoneTrim, userIdTrim],
+    [accessTokenTrim, canCallApi, refreshHistory, timezoneTrim],
   );
 
   const onSave = useCallback(async (): Promise<void> => {
     if (!canCallApi) {
-      setToast({ kind: "error", message: "userId と timezone を入力してください。" });
+      setToast({ kind: "error", message: "ログインしてください。" });
       return;
     }
 
@@ -183,7 +256,7 @@ export const App = () => {
     setSaveLoading(true);
     setToast({ kind: "info", message: "保存しています..." });
     try {
-      const response = await saveDiaryEntry(apiBaseUrl, { userId: userIdTrim, date: selectedDate, body });
+      const response = await saveDiaryEntry(apiBaseUrl, accessTokenTrim, { date: selectedDate, body });
       setStatus(response.entry.status);
       setBody(response.body);
       setDirty(false);
@@ -195,11 +268,11 @@ export const App = () => {
     } finally {
       setSaveLoading(false);
     }
-  }, [body, canCallApi, hasLoadedEntry, refreshHistory, selectedDate, userIdTrim]);
+  }, [accessTokenTrim, body, canCallApi, hasLoadedEntry, refreshHistory, selectedDate]);
 
   const onConfirm = useCallback(async (): Promise<void> => {
     if (!canCallApi) {
-      setToast({ kind: "error", message: "userId と timezone を入力してください。" });
+      setToast({ kind: "error", message: "ログインしてください。" });
       return;
     }
 
@@ -211,7 +284,7 @@ export const App = () => {
     setConfirmLoading(true);
     setToast({ kind: "info", message: "確定しています..." });
     try {
-      const response = await confirmDiaryEntry(apiBaseUrl, { userId: userIdTrim, date: selectedDate });
+      const response = await confirmDiaryEntry(apiBaseUrl, accessTokenTrim, { date: selectedDate });
       setStatus(response.entry.status);
       setBody(response.body);
       setDirty(false);
@@ -223,9 +296,49 @@ export const App = () => {
     } finally {
       setConfirmLoading(false);
     }
-  }, [canCallApi, hasLoadedEntry, refreshHistory, selectedDate, userIdTrim]);
+  }, [accessTokenTrim, canCallApi, hasLoadedEntry, refreshHistory, selectedDate]);
+
+  const onDeleteEntry = useCallback(async (): Promise<void> => {
+    if (!canCallApi) {
+      setToast({ kind: "error", message: "ログインしてください。" });
+      return;
+    }
+
+    if (!hasLoadedEntry) {
+      setToast({ kind: "error", message: "削除する対象の日記がありません。" });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `${selectedDate} の日記を削除します。取り消しできません。\n\n本当に削除しますか？`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteEntryLoading(true);
+    setToast({ kind: "info", message: "削除しています..." });
+
+    try {
+      const response = await deleteDiaryEntry(apiBaseUrl, accessTokenTrim, { date: selectedDate });
+      await refreshHistory();
+      if (response.deleted) {
+        resetEntryState();
+        setToast({ kind: "info", message: "削除しました。" });
+      } else {
+        resetEntryState();
+        setToast({ kind: "info", message: "削除対象が見つかりませんでした。" });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
+      setToast({ kind: "error", message: `削除に失敗しました: ${errorMessage}` });
+    } finally {
+      setDeleteEntryLoading(false);
+    }
+  }, [accessTokenTrim, canCallApi, hasLoadedEntry, refreshHistory, resetEntryState, selectedDate]);
 
   const onSelectHistoryEntry = useCallback((entry: DiaryEntryWithBody): void => {
+    setAutoLoadPending(false);
     setSelectedDate(entry.date);
     setEntryId(entry.id);
     setStatus(entry.status);
@@ -237,60 +350,258 @@ export const App = () => {
     setToast({ kind: "info", message: `${entry.date} を読み込みました。` });
   }, []);
 
-  useEffect(() => {
-    writeLocalStorageString(storageKeys.userId, userIdTrim);
-  }, [userIdTrim]);
+  const onCopyAccessKey = useCallback(async (): Promise<void> => {
+    if (accessTokenTrim.length === 0) {
+      return;
+    }
 
-  useEffect(() => {
-    writeLocalStorageString(storageKeys.timezone, timezoneTrim);
-  }, [timezoneTrim]);
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("clipboard is not available");
+      }
+
+      await navigator.clipboard.writeText(accessTokenTrim);
+      setToast({ kind: "info", message: "アクセスキーをコピーしました。" });
+    } catch {
+      setToast({ kind: "error", message: "コピーに失敗しました（ブラウザの権限をご確認ください）。" });
+    }
+  }, [accessTokenTrim]);
+
+  const onCreateSession = useCallback(async (): Promise<void> => {
+    setAuthLoading(true);
+    setToast({ kind: "info", message: "認証セッションを作成しています..." });
+
+    try {
+      const response = await createAuthSession(apiBaseUrl, { timezone: timezoneTrim || defaultTimezone });
+      setAccessToken(response.accessToken);
+      setAuthUser(response.user);
+      setAccessTokenInput("");
+      setToast({ kind: "info", message: "ログインしました。アクセスキーは必ず控えてください。" });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
+      setToast({ kind: "error", message: `ログインに失敗しました: ${errorMessage}` });
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [defaultTimezone, timezoneTrim]);
+
+  const onLoginWithToken = useCallback(async (): Promise<void> => {
+    const tokenTrim = accessTokenInput.trim();
+    if (tokenTrim.length === 0) {
+      setToast({ kind: "error", message: "アクセスキーを入力してください。" });
+      return;
+    }
+
+    setAuthLoading(true);
+    setToast({ kind: "info", message: "ログインしています..." });
+
+    try {
+      const me = await fetchAuthMe(apiBaseUrl, tokenTrim);
+      setAccessToken(tokenTrim);
+      setAuthUser(me.user);
+      setToast({ kind: "info", message: "ログインしました。" });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
+      setToast({ kind: "error", message: `ログインに失敗しました: ${errorMessage}` });
+    } finally {
+      setAuthLoading(false);
+    }
+  }, [accessTokenInput]);
+
+  const onLogout = useCallback(async (): Promise<void> => {
+    if (accessTokenTrim.length === 0) {
+      setAccessToken("");
+      setAuthUser(null);
+      return;
+    }
+
+    setAuthLoading(true);
+    try {
+      await logout(apiBaseUrl, accessTokenTrim);
+    } catch {
+      // ignore (token might already be invalidated)
+    } finally {
+      setAuthLoading(false);
+      setAccessToken("");
+      setAuthUser(null);
+      setAccessTokenInput("");
+      resetEntryState();
+      setHistory([]);
+      setToast(null);
+    }
+  }, [accessTokenTrim, resetEntryState]);
+
+  const onDeleteAccount = useCallback(async (): Promise<void> => {
+    if (!canCallApi) {
+      setToast({ kind: "error", message: "ログインしてください。" });
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "アカウントと日記データをすべて削除します。取り消しできません。\n\n本当に削除しますか？",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeleteUserLoading(true);
+    setToast({ kind: "info", message: "アカウントを削除しています..." });
+
+    try {
+      await deleteUser(apiBaseUrl, accessTokenTrim);
+      setToast({ kind: "info", message: "削除しました。" });
+      setAccessToken("");
+      setAuthUser(null);
+      setAccessTokenInput("");
+      resetEntryState();
+      setHistory([]);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
+      setToast({ kind: "error", message: `削除に失敗しました: ${errorMessage}` });
+    } finally {
+      setDeleteUserLoading(false);
+    }
+  }, [accessTokenTrim, canCallApi, resetEntryState]);
 
   useEffect(() => {
     if (!canCallApi) {
       return;
     }
 
-    // 当日初回オープンの draft 生成（API 側で冪等化される）。
-    if (entryId !== null) {
+    if (!autoLoadPending) {
       return;
     }
 
+    if (entryId !== null) {
+      setAutoLoadPending(false);
+      return;
+    }
+
+    setAutoLoadPending(false);
     void loadDraft({ date: todayDate, reason: "auto" });
-  }, [canCallApi, entryId, loadDraft, todayDate]);
+  }, [autoLoadPending, canCallApi, entryId, loadDraft, todayDate]);
+
+  const header = (
+    <header className="appHeader">
+      <div className="appHeader__brand">
+        <h1 className="appHeader__title">Future Diary</h1>
+        <p className="appHeader__subtitle">当日初回の下書きを作り、編集して確定する。</p>
+      </div>
+      <div className="appHeader__meta">
+        <div className="pill pill--neutral">API: {apiBaseUrl}</div>
+        {authUser ? <div className="pill pill--neutral">user: {authUser.id.slice(0, 8)}</div> : null}
+        {isAuthenticated ? (
+          <button className="button button--ghost" onClick={() => void loadDraft({ date: todayDate, reason: "manual" })} type="button" disabled={!canCallApi || draftLoading}>
+            今日を再読み込み
+          </button>
+        ) : null}
+      </div>
+    </header>
+  );
+
+  if (accessTokenTrim.length === 0) {
+    return (
+      <div className="app">
+        {header}
+        <div className="layout layout--single">
+          <section className="main">
+            <div className="card card--controls">
+              <h2 className="editorHeader__title">Sign in</h2>
+              <p className="hint">
+                アクセスキー（Bearer token）でユーザを識別します。アクセスキーは秘密情報です。紛失すると復旧できません。
+              </p>
+
+              <div className="controls controls--two">
+                <label className="field">
+                  <span className="field__label">timezone</span>
+                  <input
+                    className="input"
+                    value={timezone}
+                    onChange={(event) => setTimezone(event.target.value)}
+                    placeholder="例: Asia/Tokyo"
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label">access key</span>
+                  <input
+                    className="input"
+                    value={accessTokenInput}
+                    onChange={(event) => setAccessTokenInput(event.target.value)}
+                    placeholder="既存のアクセスキーを貼り付け"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                </label>
+              </div>
+
+              <div className="actions">
+                <button className="button" onClick={() => void onCreateSession()} type="button" disabled={authLoading || timezoneTrim.length === 0}>
+                  {authLoading ? "処理中..." : "新しく始める"}
+                </button>
+                <button className="button button--secondary" onClick={() => void onLoginWithToken()} type="button" disabled={authLoading || accessTokenInput.trim().length === 0}>
+                  {authLoading ? "処理中..." : "アクセスキーでログイン"}
+                </button>
+              </div>
+
+              <div className="actions">
+                <button className="button button--ghost" onClick={() => setToast(null)} type="button" disabled={!toast}>
+                  トーストを閉じる
+                </button>
+              </div>
+
+              {toast ? <div className={`toast ${toast.kind === "error" ? "toast--error" : "toast--info"}`}>{toast.message}</div> : null}
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <div className="app">
+        {header}
+        <div className="layout layout--single">
+          <section className="main">
+            <div className="card card--controls">
+              <h2 className="editorHeader__title">Signing in...</h2>
+              <p className="hint">アクセスキーを検証しています。</p>
+              <div className="actions">
+                <button className="button" type="button" disabled>
+                  {authLoading ? "検証中..." : "待機中"}
+                </button>
+                <button
+                  className="button button--ghost"
+                  type="button"
+                  onClick={() => {
+                    setAccessToken("");
+                    setAuthUser(null);
+                    setAccessTokenInput("");
+                  }}
+                >
+                  やり直す
+                </button>
+              </div>
+              {toast ? <div className={`toast ${toast.kind === "error" ? "toast--error" : "toast--info"}`}>{toast.message}</div> : null}
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
-      <header className="appHeader">
-        <div className="appHeader__brand">
-          <h1 className="appHeader__title">Future Diary</h1>
-          <p className="appHeader__subtitle">当日初回の下書きを作り、編集して確定する。</p>
-        </div>
-        <div className="appHeader__meta">
-          <div className="pill pill--neutral">API: {apiBaseUrl}</div>
-          <button
-            className="button button--ghost"
-            onClick={() => void loadDraft({ date: todayDate, reason: "manual" })}
-            type="button"
-            disabled={!canCallApi || draftLoading}
-          >
-            今日を再読み込み
-          </button>
-        </div>
-      </header>
+      {header}
 
       <div className="layout">
         <section className="main">
           <div className="card card--controls">
             <div className="controls">
               <label className="field">
-                <span className="field__label">userId</span>
-                <input
-                  className="input"
-                  value={userId}
-                  onChange={(event) => setUserId(event.target.value)}
-                  placeholder="例: u1"
-                  autoComplete="username"
-                />
+                <span className="field__label">user</span>
+                <input className="input" value={authUser.id} readOnly autoComplete="off" />
               </label>
               <label className="field">
                 <span className="field__label">timezone</span>
@@ -327,7 +638,7 @@ export const App = () => {
                 className="button button--secondary"
                 onClick={() => void onSave()}
                 type="button"
-                disabled={!canCallApi || !hasLoadedEntry || saveLoading || draftLoading || confirmLoading || !dirty}
+                disabled={!canCallApi || !hasLoadedEntry || saveLoading || draftLoading || confirmLoading || deleteEntryLoading || !dirty}
               >
                 {saveLoading ? "保存中..." : "保存"}
               </button>
@@ -336,11 +647,18 @@ export const App = () => {
                 className="button button--danger"
                 onClick={() => void onConfirm()}
                 type="button"
-                disabled={
-                  !canCallApi || !hasLoadedEntry || confirmLoading || draftLoading || saveLoading || status === "confirmed"
-                }
+                disabled={!canCallApi || !hasLoadedEntry || confirmLoading || draftLoading || saveLoading || deleteEntryLoading || status === "confirmed"}
               >
                 {confirmLoading ? "確定中..." : status === "confirmed" ? "確定済み" : "確定"}
+              </button>
+
+              <button
+                className="button button--danger"
+                onClick={() => void onDeleteEntry()}
+                type="button"
+                disabled={!canCallApi || !hasLoadedEntry || deleteEntryLoading || draftLoading || saveLoading || confirmLoading}
+              >
+                {deleteEntryLoading ? "削除中..." : "削除"}
               </button>
 
               <button
@@ -354,8 +672,7 @@ export const App = () => {
             </div>
 
             <p className="hint">
-              userId は認証の代替です。ここで入力した値はブラウザに保存されます。日付を変えると任意日の下書きを生成できます。
-              生成は原則として「選択日付より前の日記」を参照し、選択日付より後の日記は参照しません。
+              アクセスキーはブラウザに保存されます。他人に共有しないでください。日付を変えると任意日の下書きを生成できます。生成は原則として「選択日付より前の日記」を参照し、選択日付より後の日記は参照しません。
             </p>
           </div>
 
@@ -379,9 +696,7 @@ export const App = () => {
               </div>
 
               <div className="editorHeader__right">
-                <span className={`saveState ${dirty ? "saveState--dirty" : "saveState--clean"}`}>
-                  {dirty ? "unsaved" : "saved"}
-                </span>
+                <span className={`saveState ${dirty ? "saveState--dirty" : "saveState--clean"}`}>{dirty ? "unsaved" : "saved"}</span>
               </div>
             </div>
 
@@ -405,9 +720,7 @@ export const App = () => {
             ) : null}
           </div>
 
-          {toast ? (
-            <div className={`toast ${toast.kind === "error" ? "toast--error" : "toast--info"}`}>{toast.message}</div>
-          ) : null}
+          {toast ? <div className={`toast ${toast.kind === "error" ? "toast--error" : "toast--info"}`}>{toast.message}</div> : null}
         </section>
 
         <aside className="sidebar">
@@ -438,6 +751,26 @@ export const App = () => {
             </ol>
 
             {historyLoading ? <p className="hint">loading...</p> : null}
+          </div>
+
+          <div className="card">
+            <h2 className="historyHeader__title">Account</h2>
+            <p className="hint">アクセスキーは秘密です。削除は取り消しできません。</p>
+
+            <div className="actions">
+              <button className="button button--secondary" onClick={() => void onCopyAccessKey()} type="button" disabled={accessTokenTrim.length === 0}>
+                アクセスキーをコピー
+              </button>
+              <button className="button button--ghost" onClick={() => void onLogout()} type="button" disabled={authLoading || deleteUserLoading}>
+                ログアウト
+              </button>
+            </div>
+
+            <div className="actions">
+              <button className="button button--danger" onClick={() => void onDeleteAccount()} type="button" disabled={deleteUserLoading || authLoading}>
+                {deleteUserLoading ? "削除中..." : "アカウント削除"}
+              </button>
+            </div>
           </div>
         </aside>
       </div>

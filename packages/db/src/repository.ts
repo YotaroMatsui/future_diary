@@ -1,5 +1,5 @@
 import type { DiaryEntry } from "@future-diary/core";
-import type { DiaryRow } from "./schema";
+import type { AuthSessionRow, DiaryRow, UserRow } from "./schema";
 
 interface D1StatementLike {
   bind(...values: unknown[]): D1StatementLike;
@@ -23,6 +23,38 @@ const toDiaryEntry = (row: DiaryRow): DiaryEntry => ({
   updatedAt: row.updated_at,
 });
 
+export type User = {
+  id: string;
+  timezone: string;
+  preferencesJson: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const toUser = (row: UserRow): User => ({
+  id: row.id,
+  timezone: row.timezone,
+  preferencesJson: row.preferences_json,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+export type AuthSession = {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  createdAt: string;
+  lastUsedAt: string;
+};
+
+const toAuthSession = (row: AuthSessionRow): AuthSession => ({
+  id: row.id,
+  userId: row.user_id,
+  tokenHash: row.token_hash,
+  createdAt: row.created_at,
+  lastUsedAt: row.last_used_at,
+});
+
 export interface DiaryRepository {
   findByUserAndDate(userId: string, date: string): Promise<DiaryEntry | null>;
   listRecentByUserBeforeDate(userId: string, beforeDate: string, limit: number): Promise<DiaryEntry[]>;
@@ -30,6 +62,8 @@ export interface DiaryRepository {
   createDraftIfMissing(entry: Pick<DiaryEntry, "id" | "userId" | "date" | "generatedText">): Promise<void>;
   updateFinalText(userId: string, date: string, finalText: string | null): Promise<DiaryEntry | null>;
   confirmEntry(userId: string, date: string): Promise<DiaryEntry | null>;
+  deleteByUserAndDate(userId: string, date: string): Promise<boolean>;
+  deleteByUser(userId: string): Promise<void>;
 }
 
 export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
@@ -113,6 +147,20 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
     return await findByUserAndDate(userId, date);
   };
 
+  const deleteByUserAndDate = async (userId: string, date: string): Promise<boolean> => {
+    const existing = await findByUserAndDate(userId, date);
+    if (existing === null) {
+      return false;
+    }
+
+    await db.prepare("DELETE FROM diary_entries WHERE user_id = ? AND date = ?").bind(userId, date).run();
+    return true;
+  };
+
+  const deleteByUser = async (userId: string): Promise<void> => {
+    await db.prepare("DELETE FROM diary_entries WHERE user_id = ?").bind(userId).run();
+  };
+
   return {
     findByUserAndDate,
     listRecentByUserBeforeDate,
@@ -120,15 +168,19 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
     createDraftIfMissing,
     updateFinalText,
     confirmEntry,
+    deleteByUserAndDate,
+    deleteByUser,
   };
 };
 
 export interface UserRepository {
   upsertUser(user: { id: string; timezone: string }): Promise<void>;
+  findById(userId: string): Promise<User | null>;
+  deleteUser(userId: string): Promise<boolean>;
 }
 
-export const createUserRepository = (db: D1DatabaseLike): UserRepository => ({
-  async upsertUser(user) {
+export const createUserRepository = (db: D1DatabaseLike): UserRepository => {
+  const upsertUser = async (user: { id: string; timezone: string }): Promise<void> => {
     await db
       .prepare(
         `INSERT INTO users (id, timezone, preferences_json, created_at, updated_at)
@@ -137,5 +189,79 @@ export const createUserRepository = (db: D1DatabaseLike): UserRepository => ({
       )
       .bind(user.id, user.timezone)
       .run();
-  },
-});
+  };
+
+  const findById = async (userId: string): Promise<User | null> => {
+    const row = await db
+      .prepare("SELECT id, timezone, preferences_json, created_at, updated_at FROM users WHERE id = ?")
+      .bind(userId)
+      .first<UserRow>();
+
+    return row === null ? null : toUser(row);
+  };
+
+  const deleteUser = async (userId: string): Promise<boolean> => {
+    const existing = await findById(userId);
+    if (existing === null) {
+      return false;
+    }
+
+    await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
+    return true;
+  };
+
+  return {
+    upsertUser,
+    findById,
+    deleteUser,
+  };
+};
+
+export interface AuthSessionRepository {
+  findByTokenHash(tokenHash: string): Promise<AuthSession | null>;
+  createSession(input: { id: string; userId: string; tokenHash: string }): Promise<void>;
+  touchSession(sessionId: string): Promise<void>;
+  deleteSession(sessionId: string): Promise<void>;
+  deleteByUserId(userId: string): Promise<void>;
+}
+
+export const createAuthSessionRepository = (db: D1DatabaseLike): AuthSessionRepository => {
+  const findByTokenHash = async (tokenHash: string): Promise<AuthSession | null> => {
+    const row = await db
+      .prepare("SELECT id, user_id, token_hash, created_at, last_used_at FROM auth_sessions WHERE token_hash = ?")
+      .bind(tokenHash)
+      .first<AuthSessionRow>();
+
+    return row === null ? null : toAuthSession(row);
+  };
+
+  const createSession = async (input: { id: string; userId: string; tokenHash: string }): Promise<void> => {
+    await db
+      .prepare(
+        `INSERT INTO auth_sessions (id, user_id, token_hash, created_at, last_used_at)
+         VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
+      )
+      .bind(input.id, input.userId, input.tokenHash)
+      .run();
+  };
+
+  const touchSession = async (sessionId: string): Promise<void> => {
+    await db.prepare("UPDATE auth_sessions SET last_used_at = datetime('now') WHERE id = ?").bind(sessionId).run();
+  };
+
+  const deleteSession = async (sessionId: string): Promise<void> => {
+    await db.prepare("DELETE FROM auth_sessions WHERE id = ?").bind(sessionId).run();
+  };
+
+  const deleteByUserId = async (userId: string): Promise<void> => {
+    await db.prepare("DELETE FROM auth_sessions WHERE user_id = ?").bind(userId).run();
+  };
+
+  return {
+    findByTokenHash,
+    createSession,
+    touchSession,
+    deleteSession,
+    deleteByUserId,
+  };
+};

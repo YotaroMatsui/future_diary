@@ -26,18 +26,20 @@
 
 ## 役割
 
-- 初期テーブル定義の SQL を提供。
+- テーブル定義の migration SQL 契約を提供。
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/migrations/0001_initial.sql:1`
 - [E2] `packages/db/src/migrations/0001_initial.sql:9`
+- [E3] `packages/db/src/migrations/0002_auth_sessions.sql:1`
 </details>
 
 ## スコープ
 
 - 対象（In scope）:
   - `0001_initial.sql`
+  - `0002_auth_sessions.sql`
 - 対象外（Non-goals）:
   - query layer
 - 委譲（See）:
@@ -73,6 +75,7 @@
 .
 └── packages/db/src/migrations/
     ├── 0001_initial.sql         # 初期スキーマ
+    ├── 0002_auth_sessions.sql   # auth session（bearer token）スキーマ
     └── README.md                # この文書
 ```
 
@@ -90,6 +93,7 @@
 | 公開シンボル       | 種別         | 定義元             | 目的         | 根拠                                            |
 | ------------------ | ------------ | ------------------ | ------------ | ----------------------------------------------- |
 | `0001_initial.sql` | SQL contract | `0001_initial.sql` | schema初期化 | `packages/db/src/migrations/0001_initial.sql:1` |
+| `0002_auth_sessions.sql` | SQL contract | `0002_auth_sessions.sql` | auth session 追加 | `packages/db/src/migrations/0002_auth_sessions.sql:1` |
 
 ### 使い方（必須）
 
@@ -136,7 +140,7 @@ bun run --cwd packages/db migrate-remote
 ## 設計ノート
 
 - データ形状:
-  - users, diary_entries table
+  - users, diary_entries, auth_sessions table
 - 失敗セマンティクス:
   - SQL errorで失敗
 - メインフロー:

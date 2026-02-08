@@ -8,7 +8,7 @@
 - 関連:
   - See: `../README.md`
 - 注意:
-  - userId/timezone は localStorage に保存する（認証導入までは入力ベース）。
+  - accessToken/timezone は localStorage に保存する（accessToken は秘密情報）。
 
 <details><summary>目次</summary>
 
@@ -31,8 +31,8 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/main.tsx:12` — mount。
-- [E2] `apps/web/src/App.tsx:258` — draft auto load。
-- [E3] `apps/web/src/api.ts:51` — fetch boundary。
+- [E2] `apps/web/src/App.tsx:481` — draft auto load。
+- [E3] `apps/web/src/api.ts:65` — fetch boundary。
 </details>
 
 ## スコープ
@@ -43,7 +43,7 @@
   - 通信境界（fetch client）
   - スタイル（`app.css`）
 - 対象外（Non-goals）:
-  - 認証 UI
+  - 外部IdP連携などのフル機能認証 UI
 - 委譲（See）:
   - See: `../README.md`
 - 互換性:
@@ -56,9 +56,9 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:322`
-- [E2] `apps/web/src/api.ts:104`
-- [E3] `apps/web/src/app.css:26`
+- [E1] `apps/web/src/App.tsx:85`
+- [E2] `apps/web/src/api.ts:140`
+- [E3] `apps/web/src/app.css:71`
 </details>
 
 ## ローカル開発
@@ -91,7 +91,8 @@
 
 - 提供:
   - `App`
-  - diary API client（`fetchFutureDiaryDraft` / `saveDiaryEntry` / `confirmDiaryEntry` / `listDiaryEntries`）
+  - diary API client（`fetchFutureDiaryDraft` / `saveDiaryEntry` / `confirmDiaryEntry` / `listDiaryEntries` / `deleteDiaryEntry`）
+  - auth client（`createAuthSession` / `fetchAuthMe` / `logout` / `deleteUser`）
 - 非提供:
   - shared UI primitives
 
@@ -99,11 +100,16 @@
 
 | 公開シンボル  | 種別      | 定義元    | 目的           | 根拠                     |
 | ------------- | --------- | --------- | -------------- | ------------------------ |
-| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:70` |
-| `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:104` |
-| `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:122` |
-| `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:131` |
-| `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:143` |
+| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:85` |
+| `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:140` |
+| `createAuthSession`     | function  | `api.ts`  | session 作成 | `apps/web/src/api.ts:155` |
+| `fetchAuthMe`           | function  | `api.ts`  | session 検証 | `apps/web/src/api.ts:166` |
+| `logout`                | function  | `api.ts`  | session 破棄 | `apps/web/src/api.ts:169` |
+| `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:187` |
+| `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:196` |
+| `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:208` |
+| `deleteDiaryEntry`      | function  | `api.ts`  | diary 削除 | `apps/web/src/api.ts:219` |
+| `deleteUser`            | function  | `api.ts`  | user 削除 | `apps/web/src/api.ts:222` |
 
 ### 使い方（必須）
 
@@ -130,9 +136,12 @@ import { App } from "./App";
 
 - API response 型:
   - `FutureDiaryDraftResponse`
+  - `AuthSessionCreateResponse`
+  - `AuthMeResponse`
   - `DiaryEntrySaveResponse`
   - `DiaryEntryConfirmResponse`
   - `DiaryEntriesListResponse`
+  - `DiaryEntryDeleteResponse`
 
 ### 検証入口（CI / ローカル）
 
@@ -154,14 +163,17 @@ import { App } from "./App";
 
 - データ形状:
   - draft:
-    - request: `{ userId, date, timezone }`
+    - auth: `Authorization: Bearer <accessToken>`
+    - request: `{ date, timezone }`
     - response: `{ ok, draft, meta }`
   - save:
-    - request: `{ userId, date, body }`
+    - request: `{ date, body }`
   - confirm:
-    - request: `{ userId, date }`
+    - request: `{ date }`
+  - delete:
+    - request: `{ date }`
   - list:
-    - request: `{ userId, onOrBeforeDate, limit }`
+    - request: `{ onOrBeforeDate, limit }`
 - 失敗セマンティクス:
   - 非200は例外として扱い、UI は toast に表示する。
 - メインフロー:
@@ -172,21 +184,24 @@ import { App } from "./App";
   - `fetch`（`api.ts`）
   - localStorage（`App.tsx`）
 - トレードオフ:
-  - 認証 UI は未導入で、userId 入力を暫定採用。
+  - accessToken を localStorage に保持する（XSS リスクは残る）。
 
 ```mermaid
 flowchart TD
   UI["App.tsx"] -->|"call"| CL["api.ts"]
+  CL -->|"boundary(I/O)"| AUTH["/v1/auth/*"]
   CL -->|"boundary(I/O)"| DRAFT["POST /v1/future-diary/draft"]
   CL -->|"boundary(I/O)"| SAVE["POST /v1/diary/entry/save"]
   CL -->|"boundary(I/O)"| CONF["POST /v1/diary/entry/confirm"]
+  CL -->|"boundary(I/O)"| DEL["POST /v1/diary/entry/delete"]
   CL -->|"boundary(I/O)"| LIST["POST /v1/diary/entries/list"]
+  CL -->|"boundary(I/O)"| USERDEL["POST /v1/user/delete"]
 ```
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:248` — auto load。
-- [E2] `apps/web/src/api.ts:51` — JSON POST boundary。
+- [E1] `apps/web/src/App.tsx:481` — auto load。
+- [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
 </details>
 
 ## 品質
@@ -197,13 +212,13 @@ flowchart TD
 
 | リスク            | 対策（検証入口） | 根拠                      |
 | ----------------- | ---------------- | ------------------------- |
-| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:162` |
-| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:33` |
-| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:381` |
+| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:195` |
+| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:43` |
+| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:699` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/api.ts:67`
+- [E1] `apps/web/src/api.ts:84`
 </details>
 
 ## 内部
@@ -214,7 +229,7 @@ flowchart TD
 
 | 項目         | 判定 | 理由                   | 根拠                    |
 | ------------ | ---- | ---------------------- | ----------------------- |
-| 副作用の隔離 | YES  | fetch/localStorage を境界へ分離 | `apps/web/src/api.ts:51` |
+| 副作用の隔離 | YES  | fetch/localStorage を境界へ分離 | `apps/web/src/api.ts:65` |
 
 ### [OPEN]
 

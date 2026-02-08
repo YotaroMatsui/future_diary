@@ -121,6 +121,10 @@ body::before {
   align-items: start;
 }
 
+.layout--single {
+  grid-template-columns: 1fr;
+}
+
 .main {
   display: grid;
   gap: 14px;
@@ -129,6 +133,8 @@ body::before {
 .sidebar {
   position: sticky;
   top: 14px;
+  display: grid;
+  gap: 14px;
 }
 
 .card {
@@ -144,6 +150,10 @@ body::before {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+}
+
+.controls--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .field {
@@ -452,4 +462,3 @@ body::before {
     grid-template-columns: 1fr;
   }
 }
-
