@@ -1,0 +1,4 @@
+APP_ENV=development
+AI_EMBEDDING_MODEL=@cf/baai/bge-m3
+JOBS_TOKEN=
+

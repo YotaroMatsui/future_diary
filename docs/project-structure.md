@@ -36,9 +36,12 @@
 │   │   └── vite.config.ts
 │   └── jobs/
 │       ├── README.md
-│       └── src/
-│           ├── README.md
-│           └── reindex.ts
+│       ├── .dev.vars.example
+│       ├── src/
+│       │   ├── README.md
+│       │   ├── index.ts
+│       │   └── reindex.ts
+│       └── wrangler.toml
 ├── packages/
 │   ├── README.md
 │   ├── core/
@@ -65,6 +68,7 @@
 │   │   ├── README.md
 │   │   └── src/
 │   │       ├── README.md
+│   │       ├── cloudflare.test.ts
 │   │       ├── index.ts
 │   │       ├── cloudflare.ts
 │   │       └── search.ts

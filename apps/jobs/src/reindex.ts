@@ -1,17 +1,36 @@
-interface ReindexPayload {
-  indexName: string;
-  triggeredAt: string;
-  reason: "manual" | "scheduled";
+interface ReindexCursor {
+  userId: string;
+  date: string;
 }
 
-const buildReindexPayload = (reason: ReindexPayload["reason"]): ReindexPayload => ({
-  indexName: "future-diary-index",
-  triggeredAt: new Date().toISOString(),
-  reason,
+interface ReindexRequest {
+  userId?: string;
+  cursor?: ReindexCursor;
+  limit: number;
+  dryRun: boolean;
+}
+
+const buildReindexRequest = (overrides: Partial<ReindexRequest> = {}): ReindexRequest => ({
+  limit: 50,
+  dryRun: false,
+  ...overrides,
 });
 
-const payload = buildReindexPayload("manual");
+const request = buildReindexRequest({ dryRun: true });
 
-console.log(JSON.stringify({ ok: true, payload }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      ok: true,
+      request,
+      usage: {
+        endpoint: "/v1/vector/reindex",
+        requiredHeaders: ["content-type: application/json", "x-jobs-token: <JOBS_TOKEN>"],
+      },
+    },
+    null,
+    2,
+  ),
+);
 
-export { buildReindexPayload };
+export { buildReindexRequest };

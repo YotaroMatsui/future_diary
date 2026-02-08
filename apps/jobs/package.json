@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "wrangler dev",
     "vector:reindex": "bun run src/reindex.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json --noEmit",
@@ -10,6 +11,8 @@
     "lint:fix": "oxlint src --fix"
   },
   "dependencies": {
-    "@future-diary/vector": "workspace:*"
+    "@future-diary/vector": "workspace:*",
+    "hono": "^4.8.0",
+    "zod": "^3.24.0"
   }
 }

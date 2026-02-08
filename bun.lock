@@ -26,6 +26,8 @@
       "name": "@future-diary/jobs",
       "dependencies": {
         "@future-diary/vector": "workspace:*",
+        "hono": "^4.8.0",
+        "zod": "^3.24.0",
       },
     },
     "apps/web": {

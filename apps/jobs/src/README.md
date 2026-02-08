@@ -1,14 +1,15 @@
 # apps/jobs/src
 
-`apps/jobs/src` は background ジョブの実装コードを保持し、現在は `reindex.ts` の payload 生成を提供する。
+`apps/jobs/src` は Jobs Worker の実装を保持する。
+
+- `index.ts`: D1 -> Workers AI embeddings -> Vectorize upsert を行う reindex endpoint を提供する。
+- `reindex.ts`: 手動実行用の reindex リクエストサンプルを標準出力する（`make vector-reindex`）。
 
 - パス: `apps/jobs/src/README.md`
 - 状態: Implemented
 - 種別（Profile）: src-module
 - 関連:
   - See: `../README.md`
-- 注意:
-  - 実Vectorize更新は未実装。
 
 <details><summary>目次</summary>
 
@@ -26,175 +27,78 @@
 
 ## 役割
 
-- reindex payload 生成。
+- `POST /v1/vector/reindex` を提供し、既存日記の vector index backfill を段階実行できるようにする。
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/jobs/src/reindex.ts:7`
+- [E1] `apps/jobs/src/index.ts:154` — `POST /v1/vector/reindex`。
+- [E2] `apps/jobs/src/index.ts:70` — `JOBS_TOKEN` チェック。
+- [E3] `apps/jobs/src/reindex.ts:25` — サンプル JSON 出力。
 </details>
 
 ## スコープ
 
 - 対象（In scope）:
-  - `reindex.ts`
+  - `index.ts`, `reindex.ts`
 - 対象外（Non-goals）:
-  - Queue連携
+  - Queue/Workflow orchestration
 - 委譲（See）:
   - See: `../README.md`
-- 互換性:
-  - N/A
-- 依存方向:
-  - 許可:
-    - src local only
-  - 禁止:
-    - app cross-import
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/jobs/src/reindex.ts:1`
-</details>
 
 ## ローカル開発
 
 - 依存インストール: `make install`
-- 環境変数: N/A
-- 起動: `make vector-reindex`
-- 確認: stdout JSON
+- 環境変数: `cp ../.dev.vars.example ../.dev.vars`
+- 起動: `bun --cwd apps/jobs run dev -- --port 8788`
+- dry-run:
 
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/jobs/package.json:6`
-</details>
+```bash
+curl -X POST http://127.0.0.1:8788/v1/vector/reindex \
+  -H "content-type: application/json" \
+  -H "x-jobs-token: $JOBS_TOKEN" \
+  -d '{"limit":50,"dryRun":true}'
+```
 
 ## ディレクトリ構成
 
 ```text
 .
 └── apps/jobs/src/
-    ├── reindex.ts               # payload builder
+    ├── index.ts                 # Worker entry
+    ├── reindex.ts               # request sample generator
     └── README.md                # この文書
 ```
 
 ## 公開インタフェース
 
-### 提供するもの / 提供しないもの
-
-- 提供:
-  - `buildReindexPayload`
-- 非提供:
-  - Worker entry wrapper
-
-### エントリポイント / エクスポート（SSOT）
-
-| 公開シンボル          | 種別     | 定義元       | 目的        | 根拠                         |
-| --------------------- | -------- | ------------ | ----------- | ---------------------------- |
-| `buildReindexPayload` | function | `reindex.ts` | payload生成 | `apps/jobs/src/reindex.ts:7` |
-
-### 使い方（必須）
-
-```ts
-import { buildReindexPayload } from "./reindex";
-```
-
-### 依存ルール
-
-- 許可する import:
-  - local file only
-- 禁止する import:
-  - external app source
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/jobs/src/reindex.ts:17`
-</details>
+- `app` / `default.fetch`（Worker entry）
+- `buildReindexRequest`（CLI helper）
 
 ## 契約と検証
 
-### 契約 SSOT
-
-- `ReindexPayload`
-
-### 検証入口（CI / ローカル）
-
-- [E1] `bun --cwd apps/jobs run typecheck`
-
-### テスト（根拠として使う場合）
-
-| テストファイル | コマンド                                 | 検証内容     | 主要 assertion | 根拠                          |
-| -------------- | ---------------------------------------- | ------------ | -------------- | ----------------------------- |
-| N/A            | `bun --cwd apps/jobs run vector:reindex` | payload 生成 | ok=true        | `apps/jobs/src/reindex.ts:15` |
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/jobs/src/reindex.ts:1`
-</details>
+- 検証入口（CI / ローカル）:
+  - `bun --cwd apps/jobs run typecheck`
+  - `bun --cwd apps/jobs run build`
 
 ## 設計ノート
 
-- データ形状:
-  - `ReindexPayload`
-- 失敗セマンティクス:
-  - 例外未変換
-- メインフロー:
-  - create payload -> log。
-- I/O 境界:
-  - console
-- トレードオフ:
-  - 初期最小。
-
-```mermaid
-flowchart TD
-  B["buildReindexPayload"] -->|"return"| P["ReindexPayload"]
-  P -->|"boundary(I/O)"| L["console.log"]
-```
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/jobs/src/reindex.ts:7`
-- [E2] `apps/jobs/src/reindex.ts:15`
-</details>
+- cursor paging で段階実行する（1リクエストで全件は処理しない）。
+- Vectorize namespace は `userId` を使用する。
 
 ## 品質
 
-- テスト戦略:
-  - typecheck/build。
-- 主なリスクと対策（3〜7）:
-
-| リスク           | 対策（検証入口） | 根拠                         |
-| ---------------- | ---------------- | ---------------------------- |
-| payload 仕様崩れ | interface定義    | `apps/jobs/src/reindex.ts:1` |
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/jobs/src/reindex.ts:1`
-</details>
+- 日記本文はログへ出さない（userId は sha256 で識別子化して出力）。
 
 ## 内部
 
 <details><summary>品質（関数型プログラミング観点） / OPEN / ISSUE / SUMMARY</summary>
 
-### 品質（関数型プログラミング観点）
-
-| 項目         | 判定 | 理由            | 根拠                         |
-| ------------ | ---- | --------------- | ---------------------------- |
-| 副作用の隔離 | YES  | log以外は純関数 | `apps/jobs/src/reindex.ts:7` |
-
 ### [OPEN]
 
-- [OPEN][TODO] 実 reindex job化
-  - 背景: 現在は payload のみ
-  - 現状: stub
-  - 受入条件:
-    - Vectorize API 呼び出し追加
-  - 根拠:
-    - `apps/jobs/src/reindex.ts:15`
-
-### [ISSUE]
-
-- なし。
+- [OPEN] 大規模データ向けに Cron/Queues/Workflows へ移行
 
 ### [SUMMARY]
 
-- src は reindex の最小ロジックを保持。
+- `index.ts` が reindex の実境界、`reindex.ts` は補助 CLI。
 
 </details>
