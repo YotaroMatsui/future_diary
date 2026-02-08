@@ -6,10 +6,19 @@ import {
   futureDiaryDraftBodyJsonSchema,
 } from "@future-diary/core";
 import { createDiaryRepository, createUserRepository } from "@future-diary/db";
+import { createWorkersAiVectorizeSearchPort, searchRelevantFragments } from "@future-diary/vector";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
 import { requestOpenAiStructuredOutputText } from "./openaiResponses";
+import {
+  buildVectorSearchQuery,
+  getOptionalExecutionContext,
+  getWorkersAiEmbeddingModel,
+  mergeFragments,
+  queueVectorizeUpsert,
+  queueVectorizeUpsertMany,
+} from "./vectorize";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -39,6 +48,9 @@ const diaryEntryListRequestSchema = z.object({
 type WorkerBindings = {
   APP_ENV?: string;
   DB?: D1Database;
+  AI?: Ai;
+  VECTOR_INDEX?: Vectorize;
+  AI_EMBEDDING_MODEL?: string;
   OPENAI_API_KEY?: string;
   OPENAI_BASE_URL?: string;
   OPENAI_MODEL?: string;
@@ -118,6 +130,8 @@ app.post("/v1/future-diary/draft", async (context) => {
   const userId = parsed.data.userId;
   const date = parsed.data.date;
   const timezone = parsed.data.timezone;
+  const safetyIdentifier = await sha256Hex(userId);
+  const executionCtx = getOptionalExecutionContext(context);
 
   const userRepo = createUserRepository(db);
   const diaryRepo = createDiaryRepository(db);
@@ -143,13 +157,55 @@ app.post("/v1/future-diary/draft", async (context) => {
     });
   }
 
-  const sourceEntries = await diaryRepo.listRecentByUserBeforeDate(userId, date, 10);
-  const recentFragments = sourceEntries.map((entry, index) => ({
+  const sourceEntries = await diaryRepo.listRecentByUserBeforeDate(userId, date, 20);
+  const fallbackFragments = sourceEntries.map((entry, index) => ({
     id: entry.id,
     date: entry.date,
     relevance: 1 - index / Math.max(sourceEntries.length, 1),
     text: entry.finalText ?? entry.generatedText,
   }));
+
+  queueVectorizeUpsertMany({
+    executionCtx,
+    env: context.env,
+    safetyIdentifier,
+    userId,
+    entries: sourceEntries.slice(0, 5).map((entry) => ({
+      id: entry.id,
+      date: entry.date,
+      text: entry.finalText ?? entry.generatedText,
+    })),
+  });
+
+  let recentFragments: readonly (typeof fallbackFragments)[number][] = fallbackFragments;
+
+  if (context.env.AI && context.env.VECTOR_INDEX) {
+    const query = buildVectorSearchQuery(sourceEntries);
+
+    if (query) {
+      try {
+        const port = createWorkersAiVectorizeSearchPort({
+          ai: context.env.AI,
+          embeddingModel: getWorkersAiEmbeddingModel(context.env),
+          vectorIndex: context.env.VECTOR_INDEX,
+        });
+
+        const vectorFragments = await searchRelevantFragments(port, {
+          userId,
+          query,
+          topK: 10,
+          beforeDate: date,
+        });
+
+        recentFragments = mergeFragments(vectorFragments, fallbackFragments, 10);
+      } catch (error) {
+        console.warn("Vectorize retrieval failed; falling back to recency fragments", {
+          safetyIdentifier,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
 
   const llmFragments = recentFragments.slice(0, 5).map((fragment) => ({
     ...fragment,
@@ -164,7 +220,6 @@ app.post("/v1/future-diary/draft", async (context) => {
   const openAiModel = context.env.OPENAI_MODEL ?? "gpt-4o-mini";
 
   if (openAiApiKey) {
-    const safetyIdentifier = await sha256Hex(userId);
     const systemPrompt = buildFutureDiaryDraftLlmSystemPrompt();
     const userPrompt = buildFutureDiaryDraftLlmUserPrompt({
       date,
@@ -270,6 +325,18 @@ app.post("/v1/future-diary/draft", async (context) => {
   }
 
   const inserted = persistedEntry.id === newEntryId;
+
+  queueVectorizeUpsert({
+    executionCtx,
+    env: context.env,
+    safetyIdentifier,
+    userId,
+    entry: {
+      id: persistedEntry.id,
+      date: persistedEntry.date,
+      text: persistedEntry.finalText ?? persistedEntry.generatedText,
+    },
+  });
 
   return context.json({
     ok: true,
@@ -389,6 +456,24 @@ app.post("/v1/diary/entry/save", async (context) => {
     );
   }
 
+  const executionCtx = getOptionalExecutionContext(context);
+
+  if (context.env.AI && context.env.VECTOR_INDEX && executionCtx?.waitUntil) {
+    const safetyIdentifier = await sha256Hex(parsed.data.userId);
+
+    queueVectorizeUpsert({
+      executionCtx,
+      env: context.env,
+      safetyIdentifier,
+      userId: parsed.data.userId,
+      entry: {
+        id: entry.id,
+        date: entry.date,
+        text: entry.finalText ?? entry.generatedText,
+      },
+    });
+  }
+
   return context.json({
     ok: true,
     entry,
@@ -441,6 +526,24 @@ app.post("/v1/diary/entry/confirm", async (context) => {
       },
       404,
     );
+  }
+
+  const executionCtx = getOptionalExecutionContext(context);
+
+  if (context.env.AI && context.env.VECTOR_INDEX && executionCtx?.waitUntil) {
+    const safetyIdentifier = await sha256Hex(parsed.data.userId);
+
+    queueVectorizeUpsert({
+      executionCtx,
+      env: context.env,
+      safetyIdentifier,
+      userId: parsed.data.userId,
+      entry: {
+        id: entry.id,
+        date: entry.date,
+        text: entry.finalText ?? entry.generatedText,
+      },
+    });
   }
 
   return context.json({

@@ -34,6 +34,7 @@
 - リクエスト JSON をバリデーションし、失敗を 400 で返す。
 - 同一ユーザ同一日付の future diary draft は D1 に保存し、再呼び出し時は保存済みを返す（冪等）。
 - `OPENAI_API_KEY` が設定されている場合は外部LLMで draft 本文を生成する（失敗時は deterministic 生成へフォールバック）。
+- `AI` + `VECTOR_INDEX` binding が設定されている場合は、Workers AI embeddings + Vectorize による retrieval を行い、日記保存/確定時に best-effort で upsert する（失敗時は D1 の直近日記へ fallback）。
 - 過去データが無い場合でも編集可能な fallback draft を返す。
 - diary entry の取得/保存/確定/履歴取得 API を提供する（保存は `final_text`、確定は `status='confirmed'` を更新）。
 
@@ -75,9 +76,9 @@
   - レスポンス変換
   - D1 への draft 永続化（cache / 冪等）
   - diary entry CRUD（取得/保存/確定/履歴）
+  - Vectorize retrieval/upsert（optional）
 - 対象外（Non-goals）:
   - 本番向け認証
-  - Vectorize による RAG 検索（埋め込み生成を含む）
 - 委譲（See）:
   - See: `packages/core/README.md`
 - 互換性:
@@ -105,6 +106,7 @@
 - 依存インストール: `make install`
 - 環境変数: `cp apps/api/.dev.vars.example apps/api/.dev.vars`
 - LLM: `.dev.vars` に `OPENAI_API_KEY` を設定すると外部LLM生成が有効になる（未設定時は deterministic）。
+- retrieval: `.dev.vars` の `AI_EMBEDDING_MODEL` で embeddings model を選ぶ（Vectorize は local 未サポートのため、binding を `remote: true` にして検証するか fallback を許容する）。
 - 起動: `make dev-api`
 - 確認: `curl http://127.0.0.1:8787/health`
 
@@ -298,13 +300,14 @@ curl -X POST http://127.0.0.1:8787/v1/diary/entries/list \
   - HTTP request/response。
   - D1 read/write。
 - トレードオフ:
-  - Vectorize は未統合（retrieval は D1 の過去日記を使用）。
+  - Vectorize retrieval は optional（`AI` + `VECTOR_INDEX` binding がある場合のみ使用し、失敗時は D1 の直近日記へ fallback）。
   - `sourceFragmentIds` は永続化していない（cache hit の場合は `[]` を返す）。
 
 ```mermaid
 flowchart TD
   EP["apps/api/src/index.ts::POST /v1/future-diary/draft"] -->|"contract"| ZD["draftRequestSchema"]
   EP -->|"boundary(I/O)"| D1["D1 (DB binding)"]
+  EP -->|"boundary(I/O) (optional)"| VEC["Vectorize + Workers AI (embedding)"]
   EP -->|"boundary(I/O) (optional)"| OA["OpenAI Responses API"]
   EP -->|"call"| UC["packages/core/src/futureDiary.ts::buildFutureDiaryDraft"]
   EP -->|"call"| LP["packages/core/src/futureDiaryLlm.ts::buildFutureDiaryDraftLlm*"]
@@ -363,14 +366,10 @@ flowchart TD
 
 ### [OPEN]
 
-- [OPEN][TODO] Vectorize を用いた retrieval へ置換
-  - 背景: RAG 前提の検索境界を入れる。
-  - 現状: D1 の過去日記を単純に source として使用。
-  - 受入条件:
-    - embedding 作成 + Vectorize query の導入（jobs含む）。
+- [OPEN] Vector index の backfill / reindex 戦略（jobs / cron / 手動トリガ）の確定
+  - 背景: API は upsert を best-effort で行うが、既存データの一括投入が必要。
   - 根拠:
-    - `apps/api/src/index.ts:134`
-    - `apps/api/wrangler.toml:16`
+    - `apps/api/src/index.ts:120`
 
 ### [ISSUE]
 

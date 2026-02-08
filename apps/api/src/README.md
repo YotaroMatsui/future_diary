@@ -1,6 +1,6 @@
 # apps/api/src
 
-`apps/api/src` は Worker API の実装本体を保持し、HTTP route 定義 (`index.ts`)、外部LLM境界（`openaiResponses.ts`）と境界テスト (`index.test.ts`) を管理する。
+`apps/api/src` は Worker API の実装本体を保持し、HTTP route 定義 (`index.ts`)、外部LLM境界（`openaiResponses.ts`）、Vectorize 境界 helper（`vectorize.ts`）と境界テスト (`index.test.ts`) を管理する。
 
 - パス: `apps/api/src/README.md`
 - 状態: Implemented
@@ -37,7 +37,7 @@
 ## スコープ
 
 - 対象（In scope）:
-  - `index.ts`, `openaiResponses.ts`, `index.test.ts`
+  - `index.ts`, `openaiResponses.ts`, `vectorize.ts`, `index.test.ts`
 - 対象外（Non-goals）:
   - wrangler config
 - 委譲（See）:
@@ -75,6 +75,7 @@
 └── apps/api/src/
     ├── index.ts                 # route実装
     ├── openaiResponses.ts        # OpenAI Responses client（外部LLM境界）
+    ├── vectorize.ts             # Vectorize / Workers AI boundary helper
     ├── index.test.ts            # APIテスト
     └── README.md                # この文書
 ```
@@ -203,13 +204,10 @@ flowchart TD
 
 ### [OPEN]
 
-- [OPEN][TODO] Vectorize retrieval 接続
-  - 背景: RAG 検索に置換したい
-  - 現状: D1 の過去日記を source に使用
-  - 受入条件:
-    - embedding 作成 + Vectorize query の導入（jobs含む）
+- [OPEN] Vector index backfill / reindex（既存データ投入）の job 化
+  - 背景: retrieval/upsert は導入済みだが、既存データの一括投入が必要。
   - 根拠:
-    - `apps/api/src/index.ts:134`
+    - `apps/api/src/index.ts:120`
 
 ### [ISSUE]
 

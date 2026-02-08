@@ -6,6 +6,10 @@ workers_dev = true
 [vars]
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 OPENAI_MODEL = "gpt-4o-mini"
+AI_EMBEDDING_MODEL = "@cf/baai/bge-m3"
+
+[ai]
+binding = "AI"
 
 [[d1_databases]]
 binding = "DB"

@@ -4,6 +4,7 @@ export interface VectorSearchRequest {
   userId: string;
   query: string;
   topK: number;
+  beforeDate?: string;
 }
 
 export interface VectorSearchResult {

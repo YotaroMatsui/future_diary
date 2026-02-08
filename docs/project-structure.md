@@ -23,6 +23,7 @@
 │   │   │   ├── README.md
 │   │   │   ├── index.ts
 │   │   │   ├── openaiResponses.ts
+│   │   │   ├── vectorize.ts
 │   │   │   └── index.test.ts
 │   │   └── wrangler.toml
 │   ├── web/
@@ -65,6 +66,7 @@
 │   │   └── src/
 │   │       ├── README.md
 │   │       ├── index.ts
+│   │       ├── cloudflare.ts
 │   │       └── search.ts
 │   └── ui/
 │       ├── README.md
@@ -93,6 +95,7 @@
 ## Notes
 
 - D1 は `future-diary`（id: `fddf415b-ab33-405d-9845-e34375371822`）を使用する。
-- Vectorize は `future-diary-index`（1536, cosine）を使用する。
+- Vectorize は `future-diary-index` を使用する。
+  - dimensions は `AI_EMBEDDING_MODEL`（Workers AI embeddings）の出力次元と一致させる（不一致の場合 retrieval/upsert は fallback/skip される）。
 - 現在のCI前提コマンドは `bun` 導入済み環境を前提とする。
 - README は親を導線、子を詳細として責務分離している。

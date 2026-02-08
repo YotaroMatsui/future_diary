@@ -8,7 +8,7 @@
 - 関連:
   - See: `packages/core/README.md`
 - 注意:
-  - 実Vectorize SDK接続は未実装。
+  - Cloudflare Vectorize + Workers AI adapter は `packages/vector/src/cloudflare.ts` に実装している（local では Vectorize が未サポートのため注意）。
 
 <details>
 <summary>目次</summary>
@@ -43,8 +43,9 @@
 - 対象（In scope）:
   - query request/response 型
   - transform function
+  - Cloudflare Vectorize / Workers AI adapter（embedding / query / upsert）
 - 対象外（Non-goals）:
-  - actual embedding / upsert
+  - job orchestration（Queues / Workflows）
 - 委譲（See）:
   - See: `apps/jobs/README.md`
 - 互換性:
@@ -89,8 +90,10 @@
 - 提供:
   - `searchRelevantFragments`
   - `VectorSearchPort`
+  - `createWorkersAiVectorizeSearchPort`
+  - `upsertVectorizeSearchDocumentsWithWorkersAi`
 - 非提供:
-  - SDK client implementation
+  - Queue/Workflow wrapper
 
 ### エントリポイント / エクスポート（SSOT）
 
@@ -98,13 +101,29 @@
 | ------------------------- | --------- | --------------- | ---------- | ---------------------------------- |
 | `searchRelevantFragments` | function  | `src/search.ts` | result整形 | `packages/vector/src/search.ts:20` |
 | `VectorSearchPort`        | interface | `src/search.ts` | I/O抽象    | `packages/vector/src/search.ts:16` |
+| `createWorkersAiVectorizeSearchPort` | function | `src/cloudflare.ts` | Vectorize query adapter | `packages/vector/src/cloudflare.ts:87` |
+| `upsertVectorizeSearchDocumentsWithWorkersAi` | function | `src/cloudflare.ts` | Vectorize upsert adapter | `packages/vector/src/cloudflare.ts:168` |
 
 ### 使い方（必須）
 
 ```ts
-import { searchRelevantFragments } from "@future-diary/vector";
+import {
+  createWorkersAiVectorizeSearchPort,
+  searchRelevantFragments,
+} from "@future-diary/vector";
 
-const fragments = await searchRelevantFragments(port, { userId: "u1", query: "朝", topK: 5 });
+const port = createWorkersAiVectorizeSearchPort({
+  ai: env.AI,
+  embeddingModel: "@cf/baai/bge-m3",
+  vectorIndex: env.VECTOR_INDEX,
+});
+
+const fragments = await searchRelevantFragments(port, {
+  userId: "u1",
+  query: "朝",
+  topK: 5,
+  beforeDate: "2026-02-07",
+});
 ```
 
 ### 依存ルール
@@ -201,13 +220,10 @@ flowchart TD
 
 ### [OPEN]
 
-- [OPEN][TODO] Vectorize 実装アダプタ追加
-  - 背景: 現在は port 抽象のみ。
-  - 現状: 実 I/O 未実装。
-  - 受入条件:
-    - Cloudflare Vectorize client adapter 実装。
+- [OPEN] Vectorize metadata filter（`date < beforeDate`）を使う場合、対象 metadata key が index 側で indexed になっている必要がある
+  - 現状: adapter は filter 失敗時に retry するが、検索精度/性能は index 設定に依存する。
   - 根拠:
-    - `packages/vector/src/search.ts:16`
+    - `packages/vector/src/cloudflare.ts:124`
 
 ### [ISSUE]
 

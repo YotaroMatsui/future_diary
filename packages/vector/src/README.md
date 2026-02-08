@@ -8,7 +8,7 @@
 - 関連:
   - See: `../README.md`
 - 注意:
-  - port実装は上位層で提供。
+  - Cloudflare Vectorize + Workers AI adapter は `cloudflare.ts` に実装している。
 
 <details><summary>目次</summary>
 
@@ -36,9 +36,9 @@
 ## スコープ
 
 - 対象（In scope）:
-  - `search.ts`, `index.ts`
+  - `search.ts`, `cloudflare.ts`, `index.ts`
 - 対象外（Non-goals）:
-  - Vectorize SDK呼び出し
+  - Queue/Workflow orchestration
 - 委譲（See）:
   - See: `../README.md`
 - 互換性:
@@ -72,6 +72,7 @@
 .
 └── packages/vector/src/
     ├── search.ts                # transform logic
+    ├── cloudflare.ts            # Cloudflare Vectorize / Workers AI adapter
     ├── index.ts                 # exports
     └── README.md                # この文書
 ```
@@ -82,14 +83,16 @@
 
 - 提供:
   - `searchRelevantFragments`
+  - `createWorkersAiVectorizeSearchPort`
 - 非提供:
-  - concrete search client
+  - Queue/Workflow wrapper
 
 ### エントリポイント / エクスポート（SSOT）
 
 | 公開シンボル              | 種別     | 定義元      | 目的             | 根拠                               |
 | ------------------------- | -------- | ----------- | ---------------- | ---------------------------------- |
 | `searchRelevantFragments` | function | `search.ts` | normalize result | `packages/vector/src/search.ts:20` |
+| `createWorkersAiVectorizeSearchPort` | function | `cloudflare.ts` | Vectorize query adapter | `packages/vector/src/cloudflare.ts:87` |
 
 ### 使い方（必須）
 
@@ -182,13 +185,10 @@ flowchart TD
 
 ### [OPEN]
 
-- [OPEN][TODO] adapter 実装
-  - 背景: portのみ
-  - 現状: concreteなし
-  - 受入条件:
-    - Vectorize adapter追加
+- [OPEN] Vectorize metadata filter（`date < beforeDate`）は index 側の metadata index 設定に依存する
+  - 現状: adapter は filter 失敗時に retry するが、検索精度/性能は index 設定に依存する。
   - 根拠:
-    - `packages/vector/src/search.ts:16`
+    - `packages/vector/src/cloudflare.ts:124`
 
 ### [ISSUE]
 
