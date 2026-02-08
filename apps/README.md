@@ -70,9 +70,10 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `Makefile:24`
-- [E2] `Makefile:27`
-- [E3] `Makefile:51`
+- [E1] `Makefile:23`
+- [E2] `Makefile:26`
+- [E3] `Makefile:29`
+- [E4] `Makefile:59`
 </details>
 
 ## ディレクトリ構成
@@ -117,8 +118,8 @@ make dev-web
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `Makefile:24`
-- [E2] `Makefile:27`
+- [E1] `Makefile:26`
+- [E2] `Makefile:29`
 </details>
 
 ## 契約と検証
@@ -135,11 +136,11 @@ make dev-web
 
 | テストファイル | コマンド  | 検証内容         | 主要 assertion | 根拠          |
 | -------------- | --------- | ---------------- | -------------- | ------------- |
-| N/A            | `make ci` | 子アプリ群の検証 | exit code 0    | `Makefile:51` |
+| N/A            | `make ci` | 子アプリ群の検証 | exit code 0    | `Makefile:59` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `Makefile:51`
+- [E1] `Makefile:59`
 </details>
 
 ## 設計ノート
