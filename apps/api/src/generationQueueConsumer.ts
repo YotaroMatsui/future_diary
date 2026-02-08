@@ -1,4 +1,4 @@
-import { createDiaryRepository, createUserRepository } from "@future-diary/db";
+import { createDiaryRepository, createDiaryRevisionRepository, createUserRepository } from "@future-diary/db";
 import { upsertVectorizeSearchDocumentsWithWorkersAi } from "@future-diary/vector";
 import { acquireDraftGenerationLock, releaseDraftGenerationLock } from "./draftGenerationLock";
 import { generateFutureDiaryDraft } from "./futureDiaryDraftGeneration";
@@ -62,6 +62,7 @@ const processFutureDraftGenerate = async (params: {
 
   const db = env.DB;
   const diaryRepo = createDiaryRepository(db);
+  const diaryRevisionRepo = createDiaryRevisionRepository(db);
   const userRepo = createUserRepository(db);
 
   const userId = params.message.userId;
@@ -120,6 +121,20 @@ const processFutureDraftGenerate = async (params: {
     const completed = await diaryRepo.completeDraftGeneration(userId, date, generated.draft.body);
     if (!completed) {
       throw new Error("Draft generation completed but could not be persisted");
+    }
+
+    try {
+      await diaryRevisionRepo.appendRevision({
+        id: crypto.randomUUID(),
+        entryId: completed.id,
+        kind: "generated",
+        body: generated.draft.body,
+      });
+    } catch (error) {
+      console.warn("Draft generation revision append failed", {
+        safetyIdentifier,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
 
     // Index the generated entry body in the background.

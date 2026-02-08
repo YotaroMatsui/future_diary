@@ -31,8 +31,10 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:74`
-- [E2] `apps/api/src/index.ts:495`
+- [E1] `apps/api/src/index.ts:69` — Hono app。
+- [E2] `apps/api/src/index.ts:314` — draft route。
+- [E3] `apps/api/src/index.ts:867` — Queue consumer handler。
+- [E4] `apps/api/src/index.test.ts:1` — endpoint tests。
 </details>
 
 ## スコープ
@@ -100,10 +102,10 @@
 
 | 公開シンボル    | 種別         | 定義元     | 目的                 | 根拠                       |
 | --------------- | ------------ | ---------- | -------------------- | -------------------------- |
-| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:53` |
-| `DraftGenerationLock` | class | `index.ts` | DO lock export | `apps/api/src/index.ts:492` |
-| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:494` |
-| `default.queue` | object field | `index.ts` | Queue consumer handler | `apps/api/src/index.ts:495` |
+| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:863` |
+| `DraftGenerationLock` | class  | `index.ts` | DO lock export       | `apps/api/src/index.ts:864` |
+| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:866` |
+| `default.queue` | object field | `index.ts` | Queue consumer handler | `apps/api/src/index.ts:867` |
 
 ### 使い方（必須）
 
@@ -133,10 +135,12 @@ const response = await app.request("/health");
 
 ### 契約 SSOT
 
+- `authSessionCreateRequestSchema`
 - `draftRequestSchema`
 - `diaryEntryGetRequestSchema`
 - `diaryEntrySaveRequestSchema`
 - `diaryEntryConfirmRequestSchema`
+- `diaryEntryDeleteRequestSchema`
 - `diaryEntryListRequestSchema`
 
 ### 検証入口（CI / ローカル）
@@ -147,12 +151,12 @@ const response = await app.request("/health");
 
 | テストファイル  | コマンド                      | 検証内容              | 主要 assertion | 根拠                            |
 | --------------- | ----------------------------- | --------------------- | -------------- | ------------------------------- |
-| `index.test.ts` | `bun --cwd apps/api run test` | endpoints smoke test  | status=200     | `apps/api/src/index.test.ts:156` |
+| `index.test.ts` | `bun --cwd apps/api run test` | endpoints smoke test  | status=200     | `apps/api/src/index.test.ts:279` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:157`
-- [E2] `apps/api/src/index.test.ts:166`
+- [E1] `apps/api/src/index.test.ts:278`
+- [E2] `apps/api/src/index.test.ts:279`
 </details>
 
 ## 設計ノート
@@ -179,12 +183,12 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:75`
-- [E2] `apps/api/src/index.ts:115`
-- [E3] `apps/api/src/index.ts:134`
-- [E4] `apps/api/src/index.ts:164`
-- [E5] `apps/api/src/index.ts:214`
-- [E6] `apps/api/src/index.test.ts:156`
+- [E1] `apps/api/src/index.ts:335`
+- [E2] `apps/api/src/index.ts:378`
+- [E3] `apps/api/src/index.ts:397`
+- [E4] `apps/api/src/index.ts:468`
+- [E5] `apps/api/src/index.ts:518`
+- [E6] `apps/api/src/index.test.ts:278`
 </details>
 
 ## 品質
@@ -195,11 +199,11 @@ flowchart TD
 
 | リスク    | 対策（検証入口） | 根拠                           |
 | --------- | ---------------- | ------------------------------ |
-| route回帰 | `index.test.ts`  | `apps/api/src/index.test.ts:156` |
+| route回帰 | `index.test.ts`  | `apps/api/src/index.test.ts:278` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:156`
+- [E1] `apps/api/src/index.test.ts:278`
 </details>
 
 ## 内部
@@ -210,7 +214,7 @@ flowchart TD
 
 | 項目         | 判定 | 理由           | 根拠                       |
 | ------------ | ---- | -------------- | -------------------------- |
-| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界に限定 | `apps/api/src/index.ts:75` |
+| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界に限定 | `apps/api/src/index.ts:335` |
 
 ### [OPEN]
 

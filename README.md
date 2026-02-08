@@ -1,6 +1,6 @@
 # future-diary
 
-`make ci` を単一入口として `apps/*` と `packages/*` の検証を実行し、Cloudflare Workers/Pages 前提の開発フローを統一する。`package.json#workspaces` でモノレポ境界を固定し、実装責務は `apps/` と `packages/` に分離する。
+`make ci` を単一入口として `apps/*` と `packages/*` の検証を実行し、Cloudflare Workers/Pages 前提の開発フローを統一する。統合の最小確認として `make smoke` で web -> api -> SQLite(D1 schema) のスモークテストを実行する。`package.json#workspaces` でモノレポ境界を固定し、実装責務は `apps/` と `packages/` に分離する。
 
 - パス: `README.md`
 - 状態: Implemented
@@ -35,15 +35,19 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `package.json:5` — workspace が `apps/*`, `packages/*` を対象化。
-- [E2] `package.json:9` — ルート scripts が `ci`/`lint`/`test`/`typecheck`/`build` を提供。
-- [E3] `Makefile:21` — `make install` が `bun install` を呼び出す。
-- [E4] `Makefile:51` — `make ci` が `bun run ci` を呼ぶ。
+- [E1] `package.json:4` — workspace が `apps/*`, `packages/*` を対象化。
+- [E2] `package.json:8` — ルート scripts が `ci`/`smoke`/`lint`/`test`/`typecheck`/`build` を提供。
+- [E3] `Makefile:24` — `make install` が `bun install` を呼び出す。
+- [E4] `Makefile:60` — `make ci` が `bun run ci` を呼ぶ。
+- [E5] `Makefile:51` — `make smoke` が `bun run smoke` を呼ぶ。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
   - EP -> N1:
-    - call: [E4] `Makefile:51` — `ci` target calls `bun run ci`
-    - def: [E2] `package.json:21` — `ci` script is defined
+    - call: [E4] `Makefile:60` — `ci` target calls `bun run ci`
+    - def: [E2] `package.json:22` — `ci` script is defined
+  - EP -> N2:
+    - call: [E5] `Makefile:51` — `smoke` target calls `bun run smoke`
+    - def: [E2] `package.json:11` — `smoke` script is defined
 
 </details>
 
@@ -81,10 +85,10 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `Makefile:21` — install。
-- [E2] `Makefile:24` — dev-api。
-- [E3] `Makefile:27` — dev-web。
-- [E4] `Makefile:51` — ci。
+- [E1] `Makefile:23` — install。
+- [E2] `Makefile:26` — dev-api。
+- [E3] `Makefile:29` — dev-web。
+- [E4] `Makefile:59` — ci。
 </details>
 
 ## ディレクトリ構成
@@ -112,14 +116,17 @@
 
 | 公開シンボル | 種別   | 定義元                     | 目的                 | 根拠              |
 | ------------ | ------ | -------------------------- | -------------------- | ----------------- |
-| `ci`         | script | `package.json::scripts.ci` | 品質ゲート統合実行   | `package.json:21` |
-| `install`    | make   | `Makefile::install`        | 依存インストール入口 | `Makefile:21`     |
+| `ci`         | script | `package.json::scripts.ci` | 品質ゲート統合実行   | `package.json:22` |
+| `smoke`      | script | `package.json::scripts.smoke` | E2E smoke（web -> api -> d1） | `package.json:11` |
+| `install`    | make   | `Makefile::install`        | 依存インストール入口 | `Makefile:23`     |
+| `smoke`      | make   | `Makefile::smoke`          | E2E smoke 実行入口   | `Makefile:50`     |
 
 ### 使い方（必須）
 
 ```bash
 make install
 make ci
+make smoke
 ```
 
 ### 依存ルール
@@ -131,7 +138,7 @@ make ci
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `package.json:9` — scripts SSOT。
+- [E1] `package.json:8` — scripts SSOT。
 - [E2] `Makefile:1` — Make target SSOT。
 </details>
 
@@ -146,17 +153,21 @@ make ci
 ### 検証入口（CI / ローカル）
 
 - [E1] `make ci` — lint/test/typecheck/build を実行。
+- [E2] `make smoke` — web -> api -> SQLite(D1 schema) の E2E smoke を実行。
 
 ### テスト（根拠として使う場合）
 
 | テストファイル | コマンド  | 検証内容             | 主要 assertion | 根拠          |
 | -------------- | --------- | -------------------- | -------------- | ------------- |
-| N/A            | `make ci` | ルート統合品質ゲート | exit code 0    | `Makefile:51` |
+| N/A            | `make ci` | ルート統合品質ゲート | exit code 0    | `Makefile:59` |
+| `apps/web/e2e-smoke.test.ts` | `make smoke` | E2E smoke（web -> api -> d1） | draft/save/confirm/list が成功 | `apps/web/e2e-smoke.test.ts:1` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `package.json:21` — `ci` script。
-- [E2] `Makefile:51` — `ci` target。
+- [E1] `package.json:22` — `ci` script。
+- [E2] `Makefile:59` — `ci` target。
+- [E3] `package.json:11` — `smoke` script。
+- [E4] `Makefile:50` — `smoke` target。
 </details>
 
 ## 設計ノート
@@ -180,9 +191,9 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `Makefile:51` — `ci` target。
-- [E2] `package.json:21` — `ci` script。
-- [E3] `package.json:14` — `typecheck` script for workspaces。
+- [E1] `Makefile:59` — `ci` target。
+- [E2] `package.json:22` — `ci` script。
+- [E3] `package.json:15` — `typecheck` script for workspaces。
 </details>
 
 ## 品質
@@ -193,13 +204,13 @@ flowchart TD
 
 | リスク                     | 対策（検証入口）                 | 根拠             |
 | -------------------------- | -------------------------------- | ---------------- |
-| scripts と Makefile の乖離 | `make ci` を単一入口に固定       | `Makefile:51`    |
-| workspace 追加漏れ         | `package.json#workspaces` で管理 | `package.json:5` |
+| scripts と Makefile の乖離 | `make ci` を単一入口に固定       | `Makefile:59`    |
+| workspace 追加漏れ         | `package.json#workspaces` で管理 | `package.json:4` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `package.json:5` — workspace。
-- [E2] `Makefile:51` — CI入口。
+- [E1] `package.json:4` — workspace。
+- [E2] `Makefile:59` — CI入口。
 </details>
 
 ## 内部
@@ -211,39 +222,12 @@ flowchart TD
 
 | 項目         | 判定 | 理由                         | 根拠             |
 | ------------ | ---- | ---------------------------- | ---------------- |
-| 副作用の隔離 | YES  | rootはコマンド起動に責務限定 | `Makefile:21`    |
+| 副作用の隔離 | YES  | rootはコマンド起動に責務限定 | `Makefile:24`    |
 | 依存性注入   | N/A  | ライブラリではない           | `README.md:1`    |
-| 契約指向     | YES  | scripts/targetsをSSOT化      | `package.json:9` |
+| 契約指向     | YES  | scripts/targetsをSSOT化      | `package.json:8` |
 
 ### [OPEN]
 
-- [OPEN][TODO] (MVP P0) データ削除（アカウント削除/日記削除）の実装
-  - 背景: 要件として「データ削除」を提供する必要がある。
-  - 現状: delete 系 API/UI が未提供。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/auth-identity`（`feat/auth-identity`）に集約（認証導入と同じブランチで実施）。
-  - 受入条件:
-    - API: ユーザ単位/日記単位の削除ができ、D1 から削除される（関連データも整合）。
-    - Web: 削除導線があり、取り消し不能である旨が明示される。
-  - 根拠:
-    - `docs/requirements-ssot.md:150`
-    - `apps/api/README.md:179`
-    - `apps/web/README.md:98`
-    - `packages/db/src/migrations/0001_initial.sql:18`
-- [OPEN][TODO] (MVP P0) 認証と user identity の導入（暫定 userId 入力の置換）
-  - 背景: diary はユーザ単位のデータであり、第三者に推測/なりすましされない境界が必要。
-  - 現状: `userId` は入力値で、API は CORS `origin="*"` のため保護が弱い。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/auth-identity`（`feat/auth-identity`）
-  - 受入条件:
-    - API: `userId` を request payload から除去し、サーバ側で user を確定できる（最小は token/JWT/Access 等）。
-    - API: CORS origin を allowlist 化する（少なくとも本番は `*` を禁止）。
-    - Web: userId 入力 UI を廃止し、ログイン/識別フローに置換する。
-  - 根拠:
-    - `apps/api/src/index.ts:64`
-    - `apps/api/README.md:80`
-    - `apps/web/README.md:12`
-    - `apps/web/src/App.tsx:356`
 - [OPEN][TODO] (MVP P0) 本番デプロイ（Workers/Pages/D1/Vectorize）手順と `infra/` の整備
   - 背景: MVP として配布するには、Cloudflare 側リソース作成とデプロイ手順が SSOT として必要。
   - 現状: API/Jobs は `wrangler.toml` があるが、Pages を含む統一 runbook/infra が未整備。
@@ -258,17 +242,6 @@ flowchart TD
     - `apps/api/README.md:120`
     - `apps/web/README.md:72`
     - `infra/wrangler/.gitkeep:1`
-- [OPEN][TODO] (MVP P0) E2E スモークテストの追加（web -> api -> d1）
-  - 背景: 要件の受け入れ基準は “統合動作” が中心で、E2E での退行検知が必要。
-  - 現状: core/api の unit test はあるが、web を含む統合 smoke が無い。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/e2e-smoke`（`chore/e2e-smoke`）。認証導入後に追従更新が発生する想定。
-  - 受入条件:
-    - `make` で実行できる smoke があり、少なくとも draft -> save -> confirm -> list が検証できる。
-  - 根拠:
-    - `docs/requirements-ssot.md:245`
-    - `Makefile:51`
-    - `apps/api/src/index.test.ts:156`
 - [OPEN][TODO] (MVP P1) 生成・埋め込みの非同期化（Workflows/Queues/DO lock）と再実行設計
   - 背景: 生成は失敗耐性（リトライ/多重起動/二重生成防止）を要件として持つ。
   - 現状: API 同期処理 + best-effort `waitUntil` に留まり、Workflows/Queues/DO lock が未導入。
@@ -283,16 +256,6 @@ flowchart TD
     - `AGENTS.md:72`
     - `apps/api/src/index.ts:99`
     - `apps/jobs/README.md:1`
-- [OPEN][TODO] (MVP P1) 変更履歴（生成ドラフト/編集/確定）の保持
-  - 背景: 要件として revision 保持が推奨されており、監査/品質改善/UX 向上に効く。
-  - 現状: `diary_entries` のみで、revision のスナップショットが残らない。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/diary-revisions`（`feat/diary-revisions`）
-  - 受入条件:
-    - revision テーブルが追加され、生成/保存/確定時に履歴が追記される。
-  - 根拠:
-    - `docs/requirements-ssot.md:117`
-    - `packages/db/src/migrations/0001_initial.sql:9`
 
 ### [ISSUE]
 
@@ -301,5 +264,6 @@ flowchart TD
 ### [SUMMARY]
 
 - root は orchestration と導線だけを保持し、実装詳細は子 README に委譲する。
+- `feat/auth-identity` で bearer token session 認証 + CORS allowlist + データ削除（アカウント/日記）を実装した。
 
 </details>

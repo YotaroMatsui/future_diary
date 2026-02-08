@@ -33,43 +33,52 @@
 - Worker の HTTP エントリを提供する。
 - リクエスト JSON をバリデーションし、失敗を 400 で返す。
 - 同一ユーザ同一日付の draft は D1（`diary_entries`）に保存し、`generation_status` で作成済み/処理中/失敗/完了を管理する。
-- `POST /v1/future-diary/draft` は draft を同期生成せず、生成ジョブを enqueue して状態を返す（polling 前提）。
+- `POST /v1/future-diary/draft` は entry placeholder を作成し、(Queue binding があれば) 生成ジョブを enqueue して状態を返す（polling 前提）。Queue が無い/送信失敗の場合は同期生成へフォールバックする。
 - Queue consumer（`default.queue`）が draft 生成と Vectorize upsert を非同期実行する。
-- `OPENAI_API_KEY` が設定されている場合は外部LLMで draft 本文を生成する（失敗時は deterministic/fallback へフォールバック。ジョブ内）。
-- `AI` + `VECTOR_INDEX` binding が設定されている場合は、Workers AI embeddings + Vectorize による retrieval/upsert を行う（ジョブ内）。
+- `OPENAI_API_KEY` が設定されている場合は外部LLMで draft 本文を生成する（失敗時は deterministic/fallback へフォールバック）。
+- `AI` + `VECTOR_INDEX` binding が設定されている場合は、Workers AI embeddings + Vectorize による retrieval/upsert を行う（失敗時は D1 の直近日記へフォールバック）。
 - 同一 user/day の重複実行は Durable Object lock で抑止する。
 - 過去データが無い場合でも編集可能な fallback draft を返す。
 - diary entry の取得/保存/確定/履歴取得 API を提供する（保存は `final_text`、確定は `status='confirmed'` を更新）。
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:66` — `GET /health` 定義。
-- [E2] `apps/api/src/index.ts:74` — `POST /v1/future-diary/draft` 定義。
-- [E3] `apps/api/src/index.ts:17` — `draftRequestSchema`（zod）。
-- [E4] `apps/api/src/index.ts:118` — placeholder insert（polling用）。
-- [E5] `apps/api/src/index.ts:144` — draft generation enqueue。
-- [E6] `apps/api/src/index.ts:495` — Queue consumer handler。
-- [E7] `apps/api/src/generationQueueConsumer.ts:53` — `future_draft_generate` 処理。
-- [E8] `apps/api/src/futureDiaryDraftGeneration.ts:131` — OpenAI call（任意）。
-- [E9] `apps/api/src/openaiResponses.ts:59` — OpenAI Responses client。
-- [E10] `apps/api/src/futureDiaryDraftGeneration.ts:181` — deterministic/fallback call。
-- [E11] `packages/core/src/futureDiary.ts:20` — deterministic usecase。
-- [E12] `packages/db/src/repository.ts:94` — placeholder insert query。
-- [E13] `apps/api/src/index.ts:202` — `POST /v1/diary/entry/get` 定義。
-- [E14] `apps/api/src/index.ts:256` — `POST /v1/diary/entry/save` 定義。
-- [E15] `apps/api/src/index.ts:336` — `POST /v1/diary/entry/confirm` 定義。
-- [E16] `apps/api/src/index.ts:444` — `POST /v1/diary/entries/list` 定義。
+- [E1] `apps/api/src/index.ts:189` — `GET /health` 定義。
+- [E2] `apps/api/src/index.ts:197` — `POST /v1/auth/session` 定義。
+- [E3] `apps/api/src/index.ts:314` — `POST /v1/future-diary/draft` 定義。
+- [E4] `apps/api/src/index.ts:22` — `draftRequestSchema`（zod）。
+- [E5] `apps/api/src/index.ts:362` — placeholder insert（polling用）。
+- [E6] `apps/api/src/index.ts:386` — draft generation enqueue。
+- [E7] `apps/api/src/index.ts:405` — 同期生成フォールバック。
+- [E8] `apps/api/src/index.ts:867` — Queue consumer handler（`default.queue`）。
+- [E9] `apps/api/src/generationQueueConsumer.ts:53` — `future_draft_generate` 処理。
+- [E10] `apps/api/src/generationQueueConsumer.ts:87` — DO lock acquire。
+- [E11] `apps/api/src/futureDiaryDraftGeneration.ts:131` — OpenAI call（任意）。
+- [E12] `apps/api/src/openaiResponses.ts:59` — OpenAI Responses client。
+- [E13] `apps/api/src/futureDiaryDraftGeneration.ts:181` — deterministic call。
+- [E14] `packages/core/src/futureDiary.ts:20` — deterministic usecase。
+- [E15] `packages/db/src/repository.ts:128` — placeholder insert query。
+- [E16] `packages/db/src/migrations/0004_generation_status.sql:1` — `generation_status` / `generation_error` 追加。
+- [E17] `apps/api/src/index.ts:485` — `POST /v1/diary/entry/get` 定義。
+- [E18] `apps/api/src/index.ts:541` — `POST /v1/diary/entry/save` 定義。
+- [E19] `apps/api/src/index.ts:629` — `POST /v1/diary/entry/confirm` 定義。
+- [E20] `apps/api/src/index.ts:746` — `POST /v1/diary/entries/list` 定義。
+- [E21] `apps/api/src/index.ts:795` — `POST /v1/diary/entry/delete` 定義。
+- [E22] `apps/api/src/index.ts:835` — `POST /v1/user/delete` 定義。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
   - `POST /v1/future-diary/draft` -> `enqueueGenerationMessage`:
-    - call: [E5] `apps/api/src/index.ts:144`
+    - call: [E6] `apps/api/src/index.ts:386`
     - def: `apps/api/src/queueProducer.ts:7`
-  - `future_draft_generate` -> `requestOpenAiStructuredOutputText`:
-    - call: [E8] `apps/api/src/futureDiaryDraftGeneration.ts:131`
-    - def: [E9] `apps/api/src/openaiResponses.ts:59`
+  - `default.queue` -> `processGenerationQueueBatch`:
+    - call: [E8] `apps/api/src/index.ts:867`
+    - def: `apps/api/src/generationQueueConsumer.ts:219`
   - `future_draft_generate` -> `acquireDraftGenerationLock`:
-    - call: `apps/api/src/generationQueueConsumer.ts:86`
+    - call: [E10] `apps/api/src/generationQueueConsumer.ts:87`
     - def: `apps/api/src/draftGenerationLock.ts:61`
+  - `generateFutureDiaryDraft` -> `requestOpenAiStructuredOutputText`:
+    - call: [E11] `apps/api/src/futureDiaryDraftGeneration.ts:131`
+    - def: [E12] `apps/api/src/openaiResponses.ts:59`
 
 </details>
 
@@ -79,11 +88,13 @@
   - HTTP routing
   - 入力検証
   - レスポンス変換
+  - bearer token session による user identity（`/v1/auth/*`）
   - D1 への draft 永続化（cache / 冪等）
   - diary entry CRUD（取得/保存/確定/履歴）
+  - データ削除（アカウント削除/日記削除）
   - Vectorize retrieval/upsert（optional）
 - 対象外（Non-goals）:
-  - 本番向け認証
+  - パスワード管理や外部IdP連携などのフル機能認証（MVPは bearer token session）
 - 委譲（See）:
   - See: `packages/core/README.md`
 - 互換性:
@@ -103,13 +114,15 @@
 - [E4] `apps/api/src/index.ts:1` — import（db）。
 - [E5] `apps/api/src/futureDiaryDraftGeneration.ts:131` — OpenAI call（任意）。
 - [E6] `apps/api/src/futureDiaryDraftGeneration.ts:181` — deterministic usecase call。
-- [E7] `apps/api/src/index.ts:111` — repository creation。
+- [E7] `apps/api/src/index.ts:351` — repository creation。
 </details>
 
 ## ローカル開発
 
 - 依存インストール: `make install`
 - 環境変数: `cp apps/api/.dev.vars.example apps/api/.dev.vars`
+- DB: `make db-migrate` でローカル D1 に migration を適用する（`auth_sessions` を含む）。
+- CORS: `CORS_ALLOW_ORIGINS` を設定すると allowlist を上書きできる（production は `*` を許可しない）。
 - LLM: `.dev.vars` に `OPENAI_API_KEY` を設定すると外部LLM生成が有効になる（未設定時は deterministic）。
 - retrieval: `.dev.vars` の `AI_EMBEDDING_MODEL` で embeddings model を選ぶ（Vectorize は local 未サポートのため、binding を `remote: true` にして検証するか fallback を許容する）。
 - 起動: `make dev-api`
@@ -165,7 +178,7 @@ curl https://<wrangler出力のURL>/health
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:70` — `APP_ENV` を読み `env` に載せる。
+- [E1] `apps/api/src/index.ts:213` — `APP_ENV` を読み `env` に載せる。
 - [E2] `apps/api/wrangler.toml:4` — `workers_dev = true`。
 
 </details>
@@ -187,57 +200,91 @@ curl https://<wrangler出力のURL>/health
 
 - 提供:
   - `GET /health`
+  - `POST /v1/auth/session`
+  - `GET /v1/auth/me`
+  - `POST /v1/auth/logout`
   - `POST /v1/future-diary/draft`
   - `POST /v1/diary/entry/get`
   - `POST /v1/diary/entry/save`
   - `POST /v1/diary/entry/confirm`
+  - `POST /v1/diary/entry/delete`
   - `POST /v1/diary/entries/list`
+  - `POST /v1/user/delete`
 - 非提供:
-  - 認証API
+  - 外部IdP連携やパスワード管理などのフル機能認証
 
 ### エントリポイント / エクスポート（SSOT）
 
 | 公開シンボル                  | 種別           | 定義元         | 目的             | 根拠                       |
 | ----------------------------- | -------------- | -------------- | ---------------- | -------------------------- |
-| `GET /health`                 | HTTP route     | `src/index.ts` | 稼働確認         | `apps/api/src/index.ts:66` |
-| `POST /v1/future-diary/draft` | HTTP route     | `src/index.ts` | ドラフト生成トリガ/状態取得 | `apps/api/src/index.ts:74` |
-| `POST /v1/diary/entry/get`    | HTTP route     | `src/index.ts` | diary取得        | `apps/api/src/index.ts:202` |
-| `POST /v1/diary/entry/save`   | HTTP route     | `src/index.ts` | diary保存        | `apps/api/src/index.ts:256` |
-| `POST /v1/diary/entry/confirm`| HTTP route     | `src/index.ts` | diary確定        | `apps/api/src/index.ts:336` |
-| `POST /v1/diary/entries/list` | HTTP route     | `src/index.ts` | 履歴取得         | `apps/api/src/index.ts:444` |
-| `default.fetch`               | Worker handler | `src/index.ts` | Cloudflare entry | `apps/api/src/index.ts:494` |
-| `default.queue`               | Queue handler  | `src/index.ts` | generation/embedding consumer | `apps/api/src/index.ts:495` |
+| `GET /health`                 | HTTP route     | `src/index.ts` | 稼働確認         | `apps/api/src/index.ts:189` |
+| `POST /v1/auth/session`       | HTTP route     | `src/index.ts` | session 作成     | `apps/api/src/index.ts:197` |
+| `GET /v1/auth/me`             | HTTP route     | `src/index.ts` | session 検証     | `apps/api/src/index.ts:250` |
+| `POST /v1/auth/logout`        | HTTP route     | `src/index.ts` | session 破棄     | `apps/api/src/index.ts:292` |
+| `POST /v1/future-diary/draft` | HTTP route     | `src/index.ts` | ドラフト生成/取得 | `apps/api/src/index.ts:314` |
+| `POST /v1/diary/entry/get`    | HTTP route     | `src/index.ts` | diary取得        | `apps/api/src/index.ts:485` |
+| `POST /v1/diary/entry/save`   | HTTP route     | `src/index.ts` | diary保存        | `apps/api/src/index.ts:541` |
+| `POST /v1/diary/entry/confirm`| HTTP route     | `src/index.ts` | diary確定        | `apps/api/src/index.ts:629` |
+| `POST /v1/diary/entry/delete` | HTTP route     | `src/index.ts` | diary削除        | `apps/api/src/index.ts:795` |
+| `POST /v1/diary/entries/list` | HTTP route     | `src/index.ts` | 履歴取得         | `apps/api/src/index.ts:746` |
+| `POST /v1/user/delete`        | HTTP route     | `src/index.ts` | user削除         | `apps/api/src/index.ts:835` |
+| `DraftGenerationLock`         | Durable Object | `src/index.ts` | 同一 user/day 排他 | `apps/api/src/index.ts:864` |
+| `default.fetch`               | Worker handler | `src/index.ts` | Cloudflare entry | `apps/api/src/index.ts:866` |
+| `default.queue`               | Queue handler  | `src/index.ts` | generation/vectorize consumer | `apps/api/src/index.ts:867` |
 
 ### 使い方（必須）
 
 ```bash
+curl -X POST http://127.0.0.1:8787/v1/auth/session \
+  -H 'content-type: application/json' \
+  -d '{"timezone":"Asia/Tokyo"}'
+```
+
+```bash
 curl -X POST http://127.0.0.1:8787/v1/future-diary/draft \
   -H 'content-type: application/json' \
-  -d '{"userId":"u1","date":"2026-02-07","timezone":"Asia/Tokyo"}'
+  -H "authorization: Bearer <accessToken>" \
+  -d '{"date":"2026-02-07","timezone":"Asia/Tokyo"}'
 ```
 
 ```bash
 curl -X POST http://127.0.0.1:8787/v1/diary/entry/get \
   -H 'content-type: application/json' \
-  -d '{"userId":"u1","date":"2026-02-07"}'
+  -H "authorization: Bearer <accessToken>" \
+  -d '{"date":"2026-02-07"}'
 ```
 
 ```bash
 curl -X POST http://127.0.0.1:8787/v1/diary/entry/save \
   -H 'content-type: application/json' \
-  -d '{"userId":"u1","date":"2026-02-07","body":"編集後の本文"}'
+  -H "authorization: Bearer <accessToken>" \
+  -d '{"date":"2026-02-07","body":"編集後の本文"}'
 ```
 
 ```bash
 curl -X POST http://127.0.0.1:8787/v1/diary/entry/confirm \
   -H 'content-type: application/json' \
-  -d '{"userId":"u1","date":"2026-02-07"}'
+  -H "authorization: Bearer <accessToken>" \
+  -d '{"date":"2026-02-07"}'
+```
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/diary/entry/delete \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer <accessToken>" \
+  -d '{"date":"2026-02-07"}'
 ```
 
 ```bash
 curl -X POST http://127.0.0.1:8787/v1/diary/entries/list \
   -H 'content-type: application/json' \
-  -d '{"userId":"u1","onOrBeforeDate":"2026-02-07","limit":30}'
+  -H "authorization: Bearer <accessToken>" \
+  -d '{"onOrBeforeDate":"2026-02-07","limit":30}'
+```
+
+```bash
+curl -X POST http://127.0.0.1:8787/v1/user/delete \
+  -H "authorization: Bearer <accessToken>"
 ```
 
 ### 依存ルール
@@ -264,11 +311,13 @@ curl -X POST http://127.0.0.1:8787/v1/diary/entries/list \
 ### 契約 SSOT
 
 - Schema:
-  - `draftRequestSchema` (`userId`, `date`, `timezone`)
-  - `diaryEntryGetRequestSchema` (`userId`, `date`)
-  - `diaryEntrySaveRequestSchema` (`userId`, `date`, `body`)
-  - `diaryEntryConfirmRequestSchema` (`userId`, `date`)
-  - `diaryEntryListRequestSchema` (`userId`, `onOrBeforeDate`, `limit`)
+  - `authSessionCreateRequestSchema` (`timezone`)
+  - `draftRequestSchema` (`date`, `timezone`)
+  - `diaryEntryGetRequestSchema` (`date`)
+  - `diaryEntrySaveRequestSchema` (`date`, `body`)
+  - `diaryEntryConfirmRequestSchema` (`date`)
+  - `diaryEntryDeleteRequestSchema` (`date`)
+  - `diaryEntryListRequestSchema` (`onOrBeforeDate`, `limit`)
 - Runtime config:
   - `wrangler.toml`
 
@@ -294,9 +343,10 @@ curl -X POST http://127.0.0.1:8787/v1/diary/entries/list \
 ## 設計ノート
 
 - データ形状:
-  - request: `{ userId, date, timezone }`
+  - auth: `Authorization: Bearer <accessToken>`
+  - request: `{ date, timezone }`
   - response: `{ ok, draft, meta }`
-  - diary CRUD: `{ userId, date }` / `{ userId, date, body }` を主に使用。
+  - diary CRUD: `{ date }` / `{ date, body }` を主に使用。
 - 失敗セマンティクス:
   - validation error -> 400
   - missing binding / unexpected error -> 500
@@ -331,15 +381,16 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:74` — HTTP handler entry。
-- [E2] `apps/api/src/index.ts:17` — contract schema。
-- [E3] `apps/api/src/index.ts:118` — placeholder insert。
-- [E4] `apps/api/src/index.ts:144` — enqueue draft job。
-- [E5] `apps/api/src/index.ts:495` — queue handler。
-- [E6] `apps/api/src/generationQueueConsumer.ts:53` — consumer entry。
-- [E7] `apps/api/src/generationQueueConsumer.ts:86` — DO lock acquire。
-- [E8] `apps/api/src/futureDiaryDraftGeneration.ts:131` — OpenAI call。
-- [E9] `apps/api/src/futureDiaryDraftGeneration.ts:181` — deterministic/fallback call。
+- [E1] `apps/api/src/index.ts:314` — handler entry。
+- [E2] `apps/api/src/index.ts:22` — contract schema。
+- [E3] `apps/api/src/index.ts:362` — placeholder insert。
+- [E4] `apps/api/src/index.ts:386` — enqueue draft job。
+- [E5] `apps/api/src/index.ts:405` — sync fallback generation。
+- [E6] `apps/api/src/index.ts:867` — queue handler。
+- [E7] `apps/api/src/generationQueueConsumer.ts:53` — consumer entry。
+- [E8] `apps/api/src/generationQueueConsumer.ts:87` — DO lock acquire。
+- [E9] `apps/api/src/futureDiaryDraftGeneration.ts:131` — OpenAI call（optional）。
+- [E10] `apps/api/src/futureDiaryDraftGeneration.ts:181` — deterministic/fallback call。
 </details>
 
 ## 品質
@@ -351,16 +402,16 @@ flowchart TD
 
 | リスク                   | 対策（検証入口）     | 根拠                       |
 | ------------------------ | -------------------- | -------------------------- |
-| invalid payload を通す   | zod validate + 400   | `apps/api/src/index.ts:78` |
-| D1 binding 欠落          | 明示 500 error       | `apps/api/src/index.ts:91` |
-| 二重生成/多重起動        | DO lock + `generation_status` | `apps/api/src/generationQueueConsumer.ts:86` |
+| invalid payload を通す   | zod validate + 400   | `apps/api/src/index.ts:318` |
+| D1 binding 欠落          | 明示 500 error       | `apps/api/src/index.ts:331` |
+| 二重生成/多重起動        | DO lock + `generation_status` | `apps/api/src/generationQueueConsumer.ts:87` |
 | config 不備              | `wrangler.toml` 明示 | `apps/api/wrangler.toml:1` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:78`
-- [E2] `apps/api/src/index.ts:91`
-- [E3] `apps/api/src/generationQueueConsumer.ts:86`
+- [E1] `apps/api/src/index.ts:318`
+- [E2] `apps/api/src/index.ts:331`
+- [E3] `apps/api/src/generationQueueConsumer.ts:87`
 - [E4] `apps/api/wrangler.toml:6`
 </details>
 
@@ -373,10 +424,10 @@ flowchart TD
 
 | 項目         | 判定 | 理由                        | 根拠                       |
 | ------------ | ---- | --------------------------- | -------------------------- |
-| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界で扱う | `apps/api/src/index.ts:74` |
-| 例外より型   | PARTIAL | core結果は`ok`判定、DB/LLM例外は未変換 | `apps/api/src/index.ts:228` |
-| 依存性注入   | NO   | port注入は未導入            | `apps/api/src/index.ts:111` |
-| 契約指向     | YES  | zod schema を入口契約に利用 | `apps/api/src/index.ts:15`  |
+| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界で扱う | `apps/api/src/index.ts:314` |
+| 例外より型   | PARTIAL | core結果は`ok`判定、DB/LLM例外は未変換 | `apps/api/src/generationQueueConsumer.ts:144` |
+| 依存性注入   | NO   | port注入は未導入            | `apps/api/src/index.ts:351` |
+| 契約指向     | YES  | zod schema を入口契約に利用 | `apps/api/src/index.ts:22`  |
 
 ### [OPEN]
 
@@ -387,7 +438,7 @@ flowchart TD
 
 ### [ISSUE]
 
-- [ISSUE] 過去日付の下書き生成が「過去記録を参照していない」ように見える P1 — 違反: 参照範囲（選択日付より前のみ）の説明不足 / 影響: 下書きが汎用文になりユーザーが期待を外す / 修正方針: (1) UI/ドキュメントで参照範囲を明示 (2) 必要なら参照断片数の返却や「最新記録でスタイル参照」オプション導入を検討 / 根拠: `apps/api/src/index.ts:146`, `packages/core/src/futureDiary.ts:38`
+- [ISSUE] 過去日付の下書き生成が「過去記録を参照していない」ように見える P1 — 違反: 参照範囲（選択日付より前のみ）の説明不足 / 影響: 下書きが汎用文になりユーザーが期待を外す / 修正方針: (1) UI/ドキュメントで参照範囲を明示 (2) 必要なら参照断片数の返却や「最新記録でスタイル参照」オプション導入を検討 / 根拠: `apps/api/src/index.ts:397`, `packages/core/src/futureDiary.ts:38`
 
 ### [SUMMARY]
 
