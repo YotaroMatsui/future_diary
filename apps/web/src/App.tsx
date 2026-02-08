@@ -243,7 +243,6 @@ export const App = () => {
         return;
       }
 
-      const requestSeq = ++draftRequestSeq.current;
       setAutoLoadPending(false);
       const requestSeq = ++draftRequestSeq.current;
       setDraftLoading(true);
