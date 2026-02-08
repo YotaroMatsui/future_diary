@@ -8,6 +8,7 @@
 - 関連:
   - See: `apps/README.md`
   - See: `packages/README.md`
+  - See: `infra/README.md`
   - See: `docs/project-structure.md`
 - 注意:
   - 断定は根拠（Evidence）で裏付ける。
@@ -71,8 +72,8 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `docs/project-structure.md:16` — `apps/` 配下構成。
-- [E2] `docs/project-structure.md:26` — `packages/` 配下構成。
+- [E1] `docs/project-structure.md:17` — `apps/` 配下構成。
+- [E2] `docs/project-structure.md:45` — `packages/` 配下構成。
 </details>
 
 ## ローカル開発
@@ -97,6 +98,7 @@
 .
 ├── apps/                         # 実行アプリ / See: apps/README.md
 ├── packages/                     # 共有モジュール / See: packages/README.md
+├── infra/                        # Cloudflare設定/運用 / See: infra/README.md
 ├── docs/                         # 設計/仕様ドキュメント
 ├── Makefile                      # 共通コマンド入口
 ├── package.json                  # workspace定義とscripts
@@ -228,34 +230,7 @@ flowchart TD
 
 ### [OPEN]
 
-- [OPEN][TODO] (MVP P0) 本番デプロイ（Workers/Pages/D1/Vectorize）手順と `infra/` の整備
-  - 背景: MVP として配布するには、Cloudflare 側リソース作成とデプロイ手順が SSOT として必要。
-  - 現状: API/Jobs は `wrangler.toml` があるが、Pages を含む統一 runbook/infra が未整備。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/prod-deploy-runbook`（`docs/prod-deploy-runbook`）
-  - 受入条件:
-    - `infra/` か `docs/` に、本番構築とデプロイの runbook が存在し、Secrets/環境変数の管理方法が明記される。
-    - デプロイ後の smoke check（health + draft/save/confirm + web）が手順化される。
-  - 根拠:
-    - `AGENTS.md:135`
-    - `apps/api/wrangler.toml:1`
-    - `apps/api/README.md:120`
-    - `apps/web/README.md:72`
-    - `infra/wrangler/.gitkeep:1`
-- [OPEN][TODO] (MVP P1) 生成・埋め込みの非同期化（Workflows/Queues/DO lock）と再実行設計
-  - 背景: 生成は失敗耐性（リトライ/多重起動/二重生成防止）を要件として持つ。
-  - 現状: API 同期処理 + best-effort `waitUntil` に留まり、Workflows/Queues/DO lock が未導入。
-  - 作業分担（worktree/branch）:
-    - `../future_diary.worktrees/async-generation-orchestration`（`feat/async-generation-orchestration`）
-  - 受入条件:
-    - 生成/埋め込みが非同期ジョブで再実行可能になり、同一 user/day の重複実行が抑止される（ロック/状態）。
-    - API は “作成済み/処理中/失敗/完了” の状態を返せる。
-  - 根拠:
-    - `AGENTS.md:55`
-    - `AGENTS.md:66`
-    - `AGENTS.md:72`
-    - `apps/api/src/index.ts:99`
-    - `apps/jobs/README.md:1`
+- なし。
 
 ### [ISSUE]
 
@@ -265,5 +240,7 @@ flowchart TD
 
 - root は orchestration と導線だけを保持し、実装詳細は子 README に委譲する。
 - `feat/auth-identity` で bearer token session 認証 + CORS allowlist + データ削除（アカウント/日記）を実装した。
+- `feat/async-generation-orchestration` で Queues + DO lock による生成の非同期化と polling 契約を実装した。
+- `docs/prod-deploy-runbook` で本番デプロイ runbook（Workers/Pages/D1/Vectorize）を `infra/prod-deploy-runbook.md` に集約した。
 
 </details>
