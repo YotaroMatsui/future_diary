@@ -155,7 +155,7 @@ import { App } from "./App";
 - データ形状:
   - draft:
     - request: `{ userId, date, timezone }`
-    - response: `{ ok, draft, meta }`
+    - response: `{ ok, draft, meta }`（`meta.generationStatus` が `completed` になるまで polling）
   - save:
     - request: `{ userId, date, body }`
   - confirm:
@@ -165,7 +165,7 @@ import { App } from "./App";
 - 失敗セマンティクス:
   - 非200は例外として扱い、UI は toast に表示する。
 - メインフロー:
-  - mount -> 当日 draft 生成 -> editor 表示。
+  - mount -> 当日 draft 生成トリガ -> generationStatus を polling -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
 - I/O 境界:
@@ -185,7 +185,7 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:248` — auto load。
+- [E1] `apps/web/src/App.tsx:392` — auto load。
 - [E2] `apps/web/src/api.ts:51` — JSON POST boundary。
 </details>
 

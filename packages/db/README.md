@@ -1,6 +1,6 @@
 # packages/db
 
-`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `UserRepository` を提供し、`packages/core::DiaryEntry` への変換と user/draft の read/write クエリを担当する。スキーマ契約は `src/migrations/0001_initial.sql` と `src/schema.ts` が SSOT。
+`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `UserRepository` を提供し、`packages/core::DiaryEntry` への変換と user/draft の read/write クエリを担当する。スキーマ契約は `src/migrations/*.sql` と `src/schema.ts` が SSOT。
 
 - パス: `packages/db/README.md`
 - 状態: Implemented
@@ -30,23 +30,25 @@
 - D1 row <-> domain entry の変換を行う。
 - `findByUserAndDate` / `listRecentByUserBeforeDate` / `listRecentByUserOnOrBeforeDate` を提供する。
 - `createDraftIfMissing` / `updateFinalText` / `confirmEntry` を提供する。
+- 生成の非同期化向けに `generation_status` / `generation_error` を管理し、draft の状態遷移 helper を提供する。
 - `upsertUser` を提供する（`diary_entries.user_id` の FK を満たすため）。
 - migration SQL で `users` / `diary_entries` を定義する。
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/repository.ts:15` — `toDiaryEntry`。
-- [E2] `packages/db/src/repository.ts:26` — `DiaryRepository` interface。
-- [E3] `packages/db/src/repository.ts:73` — `createDraftIfMissing`。
-- [E4] `packages/db/src/repository.ts:86` — `updateFinalText`。
-- [E5] `packages/db/src/repository.ts:100` — `confirmEntry`。
-- [E6] `packages/db/src/repository.ts:131` — `upsertUser`（`createUserRepository`）。
-- [E7] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table。
-- [E8] `packages/db/src/repository.ts:44` — `toDiaryEntry` call。
+- [E2] `packages/db/src/repository.ts:28` — `DiaryRepository` interface。
+- [E3] `packages/db/src/repository.ts:81` — `createDraftIfMissing`。
+- [E4] `packages/db/src/repository.ts:195` — `updateFinalText`。
+- [E5] `packages/db/src/repository.ts:209` — `confirmEntry`。
+- [E6] `packages/db/src/repository.ts:246` — `upsertUser`（`createUserRepository`）。
+- [E7] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table（初期）。
+- [E8] `packages/db/src/migrations/0002_generation_status.sql:1` — `generation_status` / `generation_error` 追加。
+- [E9] `packages/db/src/repository.ts:52` — `toDiaryEntry` call。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
   - `findByUserAndDate` -> `toDiaryEntry`:
-    - call: [E8] `packages/db/src/repository.ts:44`
+    - call: [E9] `packages/db/src/repository.ts:52`
     - def: [E1] `packages/db/src/repository.ts:15`
 
 </details>
@@ -113,10 +115,11 @@
 
 | 公開シンボル            | 種別      | 定義元              | 目的              | 根拠                                            |
 | ----------------------- | --------- | ------------------- | ----------------- | ----------------------------------------------- |
-| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:35`              |
-| `createUserRepository`  | function  | `src/repository.ts` | D1 user upsert    | `packages/db/src/repository.ts:130`              |
-| `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:4`                   |
+| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:43`              |
+| `createUserRepository`  | function  | `src/repository.ts` | D1 user upsert    | `packages/db/src/repository.ts:245`             |
+| `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:7`                   |
 | `0001_initial.sql`      | migration | `src/migrations`    | schema初期化      | `packages/db/src/migrations/0001_initial.sql:1` |
+| `0002_generation_status.sql` | migration | `src/migrations` | 生成状態の追加 | `packages/db/src/migrations/0002_generation_status.sql:1` |
 
 ### 使い方（必須）
 

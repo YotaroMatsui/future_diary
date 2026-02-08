@@ -1,6 +1,6 @@
 import { diaryStatusLabel } from "@future-diary/ui";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DiaryEntryWithBody, DiaryStatus, FutureDiaryDraftResponse } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DiaryEntryWithBody, DiaryStatus, DraftGenerationStatus, FutureDiaryDraftResponse } from "./api";
 import { confirmDiaryEntry, fetchFutureDiaryDraft, listDiaryEntries, saveDiaryEntry } from "./api";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
@@ -62,6 +62,40 @@ const normalizeSnippet = (text: string, maxChars: number): string => {
   return normalized.length <= maxChars ? normalized : normalized.slice(0, maxChars) + "...";
 };
 
+const generationStatusLabel = (status: DraftGenerationStatus): string => {
+  switch (status) {
+    case "created":
+      return "作成済み";
+    case "processing":
+      return "処理中";
+    case "failed":
+      return "失敗";
+    case "completed":
+      return "完了";
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+};
+
+const generationStatusPillClass = (status: DraftGenerationStatus): string => {
+  switch (status) {
+    case "created":
+      return "pill--info";
+    case "processing":
+      return "pill--info";
+    case "failed":
+      return "pill--error";
+    case "completed":
+      return "pill--neutral";
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+};
+
 type ToastState = {
   kind: "info" | "error";
   message: string;
@@ -92,6 +126,8 @@ export const App = () => {
   const [confirmLoading, setConfirmLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
+
+  const draftRequestSeq = useRef(0);
 
   const todayDate = useMemo(() => formatDateInTimeZone(new Date(), timezone), [timezone]);
 
@@ -132,41 +168,97 @@ export const App = () => {
         return;
       }
 
+      const requestSeq = ++draftRequestSeq.current;
+
       setDraftLoading(true);
       setToast(opts.reason === "auto" ? null : { kind: "info", message: "未来日記を生成しています..." });
       try {
-        const response = await fetchFutureDiaryDraft(apiBaseUrl, {
+        const payload = {
           userId: userIdTrim,
           date: opts.date,
           timezone: timezoneTrim,
-        });
+        };
 
-        setSelectedDate(opts.date);
-        setEntryId(response.meta.entryId);
-        setStatus(response.meta.status);
-        setTitle(response.draft.title);
-        setBody(response.draft.body);
-        setSourceFragmentIds(response.draft.sourceFragmentIds);
-        setDraftMeta(response.meta);
-        setDirty(false);
+        const applyResponse = (response: FutureDiaryDraftResponse): void => {
+          setSelectedDate(opts.date);
+          setEntryId(response.meta.entryId);
+          setStatus(response.meta.status);
+          setTitle(response.draft.title);
+          setBody(response.draft.body);
+          setSourceFragmentIds(response.draft.sourceFragmentIds);
+          setDraftMeta(response.meta);
+          setDirty(false);
+        };
 
+        let response = await fetchFutureDiaryDraft(apiBaseUrl, payload);
+        if (draftRequestSeq.current !== requestSeq) {
+          return;
+        }
+
+        applyResponse(response);
         await refreshHistory();
 
-        setToast({
-          kind: "info",
-          message:
-            response.meta.source === "cached"
-              ? "既存の日記を読み込みました。"
-              : "新しい未来日記（下書き）を作成しました。",
-        });
+        if (response.meta.generationStatus === "failed") {
+          const errorMessage = response.meta.generationError ?? "unknown error";
+          setToast({ kind: "error", message: `未来日記の生成に失敗しました: ${errorMessage}` });
+          return;
+        }
+
+        if (response.meta.generationStatus === "completed") {
+          setToast({
+            kind: "info",
+            message:
+              response.meta.source === "cached" && response.meta.cached
+                ? "既存の日記を読み込みました。"
+                : "未来日記（下書き）を作成しました。",
+          });
+          return;
+        }
+
+        setToast({ kind: "info", message: "生成ジョブを開始しました。完了まで待機します..." });
+
+        const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+        const maxPolls = 40;
+        for (let poll = 0; poll < maxPolls; poll += 1) {
+          const waitMs = Math.max(300, response.meta.pollAfterMs);
+          await sleep(waitMs);
+
+          if (draftRequestSeq.current !== requestSeq) {
+            return;
+          }
+
+          response = await fetchFutureDiaryDraft(apiBaseUrl, payload);
+          if (draftRequestSeq.current !== requestSeq) {
+            return;
+          }
+
+          applyResponse(response);
+
+          if (response.meta.generationStatus === "completed") {
+            await refreshHistory();
+            setToast({ kind: "info", message: "未来日記の生成が完了しました。" });
+            return;
+          }
+
+          if (response.meta.generationStatus === "failed") {
+            const errorMessage = response.meta.generationError ?? "unknown error";
+            setToast({ kind: "error", message: `未来日記の生成に失敗しました: ${errorMessage}` });
+            return;
+          }
+        }
+
+        setToast({ kind: "error", message: "未来日記の生成がタイムアウトしました。もう一度お試しください。" });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "unknown error";
         setToast({ kind: "error", message: `未来日記の生成に失敗しました: ${errorMessage}` });
       } finally {
-        setDraftLoading(false);
+        if (draftRequestSeq.current === requestSeq) {
+          setDraftLoading(false);
+        }
       }
     },
-    [canCallApi, refreshHistory, timezoneTrim, userIdTrim],
+    [canCallApi, draftRequestSeq, refreshHistory, timezoneTrim, userIdTrim],
   );
 
   const onSave = useCallback(async (): Promise<void> => {
@@ -186,6 +278,25 @@ export const App = () => {
       const response = await saveDiaryEntry(apiBaseUrl, { userId: userIdTrim, date: selectedDate, body });
       setStatus(response.entry.status);
       setBody(response.body);
+      setDraftMeta((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: response.entry.status,
+              generationStatus: response.entry.generationStatus,
+              generationError: response.entry.generationError,
+            }
+          : {
+              userId: response.entry.userId,
+              entryId: response.entry.id,
+              status: response.entry.status,
+              generationStatus: response.entry.generationStatus,
+              generationError: response.entry.generationError,
+              cached: true,
+              source: "cached",
+              pollAfterMs: 0,
+            },
+      );
       setDirty(false);
       await refreshHistory();
       setToast({ kind: "info", message: "保存しました。" });
@@ -214,6 +325,25 @@ export const App = () => {
       const response = await confirmDiaryEntry(apiBaseUrl, { userId: userIdTrim, date: selectedDate });
       setStatus(response.entry.status);
       setBody(response.body);
+      setDraftMeta((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: response.entry.status,
+              generationStatus: response.entry.generationStatus,
+              generationError: response.entry.generationError,
+            }
+          : {
+              userId: response.entry.userId,
+              entryId: response.entry.id,
+              status: response.entry.status,
+              generationStatus: response.entry.generationStatus,
+              generationError: response.entry.generationError,
+              cached: true,
+              source: "cached",
+              pollAfterMs: 0,
+            },
+      );
       setDirty(false);
       await refreshHistory();
       setToast({ kind: "info", message: "確定しました。" });
@@ -232,7 +362,16 @@ export const App = () => {
     setTitle(`${entry.date} の未来日記`);
     setBody(entry.body);
     setSourceFragmentIds([]);
-    setDraftMeta(null);
+    setDraftMeta({
+      userId: entry.userId,
+      entryId: entry.id,
+      status: entry.status,
+      generationStatus: entry.generationStatus,
+      generationError: entry.generationError,
+      cached: true,
+      source: "cached",
+      pollAfterMs: 0,
+    });
     setDirty(false);
     setToast({ kind: "info", message: `${entry.date} を読み込みました。` });
   }, []);
@@ -369,6 +508,11 @@ export const App = () => {
                   ) : (
                     <span className="pill pill--neutral">未読込</span>
                   )}
+                  {draftMeta ? (
+                    <span className={`pill ${generationStatusPillClass(draftMeta.generationStatus)}`}>
+                      gen: {generationStatusLabel(draftMeta.generationStatus)}
+                    </span>
+                  ) : null}
                   {draftMeta ? <span className="pill pill--neutral">source: {draftMeta.source}</span> : null}
                   {draftMeta ? (
                     <span className={`pill ${draftMeta.cached ? "pill--neutral" : "pill--info"}`}>
@@ -388,6 +532,7 @@ export const App = () => {
             <textarea
               className="textarea"
               value={body}
+              disabled={draftLoading}
               onChange={(event) => {
                 setBody(event.target.value);
                 setDirty(true);
@@ -430,6 +575,11 @@ export const App = () => {
                     <div className="historyEntry__top">
                       <span className="historyEntry__date">{entry.date}</span>
                       <span className={`pill pill--${entry.status}`}>{diaryStatusLabel(entry.status)}</span>
+                      {entry.generationStatus !== "completed" ? (
+                        <span className={`pill ${generationStatusPillClass(entry.generationStatus)}`}>
+                          gen: {generationStatusLabel(entry.generationStatus)}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="historyEntry__snippet">{normalizeSnippet(entry.body, 110)}</div>
                   </button>

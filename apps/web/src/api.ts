@@ -74,11 +74,15 @@ const postJson = async <TResponse>(url: string, payload: unknown): Promise<TResp
 
 export type DiaryStatus = "draft" | "confirmed";
 
+export type DraftGenerationStatus = "created" | "processing" | "failed" | "completed";
+
 export type DiaryEntry = {
   id: string;
   userId: string;
   date: string;
   status: DiaryStatus;
+  generationStatus: DraftGenerationStatus;
+  generationError: string | null;
   generatedText: string;
   finalText: string | null;
   createdAt: string;
@@ -96,8 +100,11 @@ export type FutureDiaryDraftResponse = {
     userId: string;
     entryId: string;
     status: DiaryStatus;
+    generationStatus: DraftGenerationStatus;
+    generationError: string | null;
     cached: boolean;
-    source: "llm" | "deterministic" | "fallback" | "cached";
+    source: "llm" | "deterministic" | "fallback" | "cached" | "queued";
+    pollAfterMs: number;
   };
 };
 

@@ -20,3 +20,19 @@ migrations_dir = "../../packages/db/src/migrations"
 [[vectorize]]
 binding = "VECTOR_INDEX"
 index_name = "future-diary-index"
+
+[[queues.producers]]
+binding = "GENERATION_QUEUE"
+queue = "future-diary-generation"
+
+[[queues.consumers]]
+queue = "future-diary-generation"
+max_batch_size = 10
+max_batch_timeout = 5
+
+[durable_objects]
+bindings = [{ name = "GENERATION_LOCK", class_name = "DraftGenerationLock" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["DraftGenerationLock"]

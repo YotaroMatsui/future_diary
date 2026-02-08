@@ -31,8 +31,8 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/db/src/schema.ts:4`
-- [E2] `packages/db/src/repository.ts:26`
+- [E1] `packages/db/src/schema.ts:7`
+- [E2] `packages/db/src/repository.ts:28`
 </details>
 
 ## スコープ
@@ -96,8 +96,8 @@
 
 | 公開シンボル            | 種別     | 定義元          | 目的   | 根拠                               |
 | ----------------------- | -------- | --------------- | ------ | ---------------------------------- |
-| `createDiaryRepository` | function | `repository.ts` | D1操作 | `packages/db/src/repository.ts:35` |
-| `createUserRepository`  | function | `repository.ts` | user upsert | `packages/db/src/repository.ts:130` |
+| `createDiaryRepository` | function | `repository.ts` | D1操作 | `packages/db/src/repository.ts:43` |
+| `createUserRepository`  | function | `repository.ts` | user upsert | `packages/db/src/repository.ts:245` |
 
 ### 使い方（必須）
 

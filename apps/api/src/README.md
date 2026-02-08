@@ -1,6 +1,6 @@
 # apps/api/src
 
-`apps/api/src` は Worker API の実装本体を保持し、HTTP route 定義 (`index.ts`)、外部LLM境界（`openaiResponses.ts`）、Vectorize 境界 helper（`vectorize.ts`）と境界テスト (`index.test.ts`) を管理する。
+`apps/api/src` は Worker API の実装本体を保持し、HTTP route 定義 (`index.ts`) に加えて、生成の非同期化（Queue consumer / DO lock）と外部境界（OpenAI / Vectorize）を管理する。
 
 - パス: `apps/api/src/README.md`
 - 状態: Implemented
@@ -27,17 +27,18 @@
 ## 役割
 
 - route 定義と API テストの同居。
+- 生成ジョブ（Queue consumer）とロック（Durable Object）の境界を提供する。
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:75`
-- [E2] `apps/api/src/index.test.ts:156`
+- [E1] `apps/api/src/index.ts:74`
+- [E2] `apps/api/src/index.ts:495`
 </details>
 
 ## スコープ
 
 - 対象（In scope）:
-  - `index.ts`, `openaiResponses.ts`, `vectorize.ts`, `index.test.ts`
+  - `index.ts`, `openaiResponses.ts`, `vectorize.ts`, `generationQueueConsumer.ts`, `draftGenerationLock.ts`, `queue*.ts`, `index.test.ts`
 - 対象外（Non-goals）:
   - wrangler config
 - 委譲（See）:
@@ -74,6 +75,12 @@
 .
 └── apps/api/src/
     ├── index.ts                 # route実装
+    ├── generationQueueConsumer.ts # Queue consumer（生成/埋め込み）
+    ├── queueMessages.ts          # Queue message contract
+    ├── queueProducer.ts          # Queue producer helper
+    ├── draftGenerationLock.ts    # DO lock（同一 user/day 排他）
+    ├── futureDiaryDraftGeneration.ts # draft生成（OpenAI + deterministic）
+    ├── safetyIdentifier.ts       # sha256 helper（ログ用）
     ├── openaiResponses.ts        # OpenAI Responses client（外部LLM境界）
     ├── vectorize.ts             # Vectorize / Workers AI boundary helper
     ├── index.test.ts            # APIテスト
@@ -93,8 +100,10 @@
 
 | 公開シンボル    | 種別         | 定義元     | 目的                 | 根拠                       |
 | --------------- | ------------ | ---------- | -------------------- | -------------------------- |
-| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:46` |
-| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:489` |
+| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:53` |
+| `DraftGenerationLock` | class | `index.ts` | DO lock export | `apps/api/src/index.ts:492` |
+| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:494` |
+| `default.queue` | object field | `index.ts` | Queue consumer handler | `apps/api/src/index.ts:495` |
 
 ### 使い方（必須）
 

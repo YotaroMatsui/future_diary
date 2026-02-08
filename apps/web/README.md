@@ -166,7 +166,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
 - データ形状:
   - draft:
     - request: `{ userId, date, timezone }`
-    - response: `{ ok, draft, meta }`
+    - response: `{ ok, draft, meta }`（`meta.generationStatus` が `completed` になるまで polling）
   - save:
     - request: `{ userId, date, body }`
   - confirm:
@@ -176,7 +176,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
 - 失敗セマンティクス:
   - fetch失敗時に toast を error 表示（status + API payload 整形）。
 - メインフロー:
-  - (userId/timezone が揃っていれば) mount -> 当日 draft 生成 -> editor 表示。
+  - (userId/timezone が揃っていれば) mount -> 当日 draft 生成トリガ -> generationStatus を polling -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
 - I/O 境界:
@@ -196,12 +196,12 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:248` — mount時の自動生成。
+- [E1] `apps/web/src/App.tsx:392` — mount時の自動生成。
 - [E2] `apps/web/src/api.ts:51` — JSON POST boundary。
-- [E3] `apps/web/src/api.ts:104` — draft client。
-- [E4] `apps/web/src/api.ts:122` — save client。
-- [E5] `apps/web/src/api.ts:131` — confirm client。
-- [E6] `apps/web/src/api.ts:143` — list client。
+- [E3] `apps/web/src/api.ts:111` — draft client。
+- [E4] `apps/web/src/api.ts:129` — save client。
+- [E5] `apps/web/src/api.ts:138` — confirm client。
+- [E6] `apps/web/src/api.ts:150` — list client。
 </details>
 
 ## 品質

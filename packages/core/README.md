@@ -35,7 +35,7 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/core/src/types.ts:3` — `Result` 型。
+- [E1] `packages/core/src/types.ts:5` — `Result` 型。
 - [E2] `packages/core/src/futureDiary.ts:20` — usecase 定義。
 - [E3] `packages/core/src/futureDiary.ts:23` — invalid style error。
 - [E4] `packages/core/src/futureDiary.ts:38` — no source error。
@@ -122,8 +122,9 @@
 | `buildFutureDiaryDraftLlmSystemPrompt` | function | `src/futureDiaryLlm.ts` | LLM system prompt | `packages/core/src/futureDiaryLlm.ts:20` |
 | `buildFutureDiaryDraftLlmUserPrompt` | function | `src/futureDiaryLlm.ts` | LLM user prompt | `packages/core/src/futureDiaryLlm.ts:33` |
 | `futureDiaryDraftBodyJsonSchema` | const | `src/futureDiaryLlm.ts` | structured output schema | `packages/core/src/futureDiaryLlm.ts:7` |
-| `Result`                | type      | `src/types.ts`       | 失敗表現    | `packages/core/src/types.ts:3`        |
-| `DiaryEntry`            | interface | `src/types.ts`       | diaryモデル | `packages/core/src/types.ts:35`       |
+| `DraftGenerationStatus` | type      | `src/types.ts`       | 生成状態    | `packages/core/src/types.ts:3`        |
+| `Result`                | type      | `src/types.ts`       | 失敗表現    | `packages/core/src/types.ts:5`        |
+| `DiaryEntry`            | interface | `src/types.ts`       | diaryモデル | `packages/core/src/types.ts:37`       |
 
 ### 使い方（必須）
 
@@ -235,7 +236,7 @@ flowchart TD
 | 参照透過性 | YES  | 同一入力で同一出力       | `packages/core/src/futureDiary.ts:20` |
 | 純粋性     | YES  | 外部I/Oなし              | `packages/core/src/futureDiary.ts:1`  |
 | 不変性     | YES  | `[...]` でコピーして操作 | `packages/core/src/futureDiary.ts:33` |
-| 例外より型 | YES  | `Result` で失敗を表現    | `packages/core/src/types.ts:3`        |
+| 例外より型 | YES  | `Result` で失敗を表現    | `packages/core/src/types.ts:5`        |
 | 決定性     | YES  | relevance順にソート      | `packages/core/src/futureDiary.ts:35` |
 
 ### [OPEN]

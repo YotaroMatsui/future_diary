@@ -293,6 +293,10 @@ body::before {
   background: rgba(16, 19, 24, 0.06);
 }
 
+.pill--error {
+  background: rgba(220, 38, 38, 0.12);
+}
+
 .saveState {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 12px;
@@ -452,4 +456,3 @@ body::before {
     grid-template-columns: 1fr;
   }
 }
-
