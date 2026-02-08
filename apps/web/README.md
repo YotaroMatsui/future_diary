@@ -35,11 +35,11 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/main.tsx:12` — React root mount。
-- [E2] `apps/web/src/App.tsx:481` — 当日初回の draft auto load。
-- [E3] `apps/web/src/App.tsx:214` — draft API call。
-- [E4] `apps/web/src/App.tsx:259` — save API call。
-- [E5] `apps/web/src/App.tsx:287` — confirm API call。
-- [E6] `apps/web/src/App.tsx:188` — history list API call。
+- [E2] `apps/web/src/App.tsx:625` — 当日初回の draft auto load。
+- [E3] `apps/web/src/App.tsx:263` — draft API call。
+- [E4] `apps/web/src/App.tsx:356` — save API call。
+- [E5] `apps/web/src/App.tsx:403` — confirm API call。
+- [E6] `apps/web/src/App.tsx:224` — history list API call。
 </details>
 
 ## スコープ
@@ -63,10 +63,10 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:634` — draft 操作 UI。
-- [E2] `apps/web/src/App.tsx:703` — editor UI。
-- [E3] `apps/web/src/App.tsx:735` — history UI。
-- [E4] `apps/web/src/api.ts:140` — draft client。
+- [E1] `apps/web/src/App.tsx:778` — draft 操作 UI。
+- [E2] `apps/web/src/App.tsx:853` — editor UI。
+- [E3] `apps/web/src/App.tsx:885` — history UI。
+- [E4] `apps/web/src/api.ts:147` — draft client。
 </details>
 
 ## ローカル開発
@@ -108,16 +108,16 @@
 
 | 公開シンボル  | 種別      | 定義元        | 目的           | 根拠                     |
 | ------------- | --------- | ------------- | -------------- | ------------------------ |
-| `App`                 | component | `src/App.tsx` | UI root | `apps/web/src/App.tsx:85` |
-| `fetchFutureDiaryDraft` | function  | `src/api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:140` |
-| `createAuthSession`     | function  | `src/api.ts`  | session 作成 | `apps/web/src/api.ts:155` |
-| `fetchAuthMe`           | function  | `src/api.ts`  | session 検証 | `apps/web/src/api.ts:166` |
-| `logout`                | function  | `src/api.ts`  | session 破棄 | `apps/web/src/api.ts:169` |
-| `saveDiaryEntry`        | function  | `src/api.ts`  | diary 保存 | `apps/web/src/api.ts:187` |
-| `confirmDiaryEntry`     | function  | `src/api.ts`  | diary 確定 | `apps/web/src/api.ts:196` |
-| `listDiaryEntries`      | function  | `src/api.ts`  | 履歴取得 | `apps/web/src/api.ts:208` |
-| `deleteDiaryEntry`      | function  | `src/api.ts`  | diary 削除 | `apps/web/src/api.ts:219` |
-| `deleteUser`            | function  | `src/api.ts`  | user 削除 | `apps/web/src/api.ts:222` |
+| `App`                 | component | `src/App.tsx` | UI root | `apps/web/src/App.tsx:119` |
+| `fetchFutureDiaryDraft` | function  | `src/api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:147` |
+| `createAuthSession`     | function  | `src/api.ts`  | session 作成 | `apps/web/src/api.ts:162` |
+| `fetchAuthMe`           | function  | `src/api.ts`  | session 検証 | `apps/web/src/api.ts:173` |
+| `logout`                | function  | `src/api.ts`  | session 破棄 | `apps/web/src/api.ts:176` |
+| `saveDiaryEntry`        | function  | `src/api.ts`  | diary 保存 | `apps/web/src/api.ts:194` |
+| `confirmDiaryEntry`     | function  | `src/api.ts`  | diary 確定 | `apps/web/src/api.ts:203` |
+| `listDiaryEntries`      | function  | `src/api.ts`  | 履歴取得 | `apps/web/src/api.ts:215` |
+| `deleteDiaryEntry`      | function  | `src/api.ts`  | diary 削除 | `apps/web/src/api.ts:226` |
+| `deleteUser`            | function  | `src/api.ts`  | user 削除 | `apps/web/src/api.ts:229` |
 
 ### 使い方（必須）
 
@@ -180,7 +180,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
   - draft:
     - auth: `Authorization: Bearer <accessToken>`
     - request: `{ date, timezone }`
-    - response: `{ ok, draft, meta }`
+    - response: `{ ok, draft, meta }`（`meta.generationStatus` が `completed` になるまで polling）
   - save:
     - request: `{ date, body }`
   - confirm:
@@ -192,7 +192,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
 - 失敗セマンティクス:
   - fetch失敗時に toast を error 表示（status + API payload 整形）。
 - メインフロー:
-  - (accessToken/timezone が揃っていれば) mount -> 当日 draft 生成 -> editor 表示。
+  - (accessToken/timezone が揃っていれば) mount -> 当日 draft 生成/読み込み -> generationStatus を polling -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
 - I/O 境界:
@@ -212,12 +212,12 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:481` — mount時の自動生成。
+- [E1] `apps/web/src/App.tsx:625` — mount時の自動生成。
 - [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
-- [E3] `apps/web/src/api.ts:140` — draft client。
-- [E4] `apps/web/src/api.ts:187` — save client。
-- [E5] `apps/web/src/api.ts:196` — confirm client。
-- [E6] `apps/web/src/api.ts:208` — list client。
+- [E3] `apps/web/src/api.ts:147` — draft client。
+- [E4] `apps/web/src/api.ts:194` — save client。
+- [E5] `apps/web/src/api.ts:203` — confirm client。
+- [E6] `apps/web/src/api.ts:215` — list client。
 </details>
 
 ## 品質
@@ -228,14 +228,14 @@ flowchart TD
 
 | リスク            | 対策（検証入口）          | 根拠                      |
 | ----------------- | ------------------------- | ------------------------- |
-| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:195` |
-| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:43` |
-| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:699` |
+| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:332` |
+| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:61` |
+| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:848` |
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/api.ts:84` — 非200で例外化。
-- [E2] `apps/web/src/App.tsx:195` — 例外を toast 表示。
+- [E2] `apps/web/src/App.tsx:332` — 例外を toast 表示。
 - [E3] `Makefile:50` — `make smoke` target。
 - [E4] `apps/web/e2e-smoke.test.ts:1` — E2E smoke。
 </details>
@@ -250,7 +250,7 @@ flowchart TD
 | 項目         | 判定 | 理由                          | 根拠                      |
 | ------------ | ---- | ----------------------------- | ------------------------- |
 | 副作用の隔離 | YES  | fetch/localStorage を境界へ分離 | `apps/web/src/api.ts:65` |
-| 不変性       | YES  | state更新は新値セットのみ     | `apps/web/src/App.tsx:707` |
+| 不変性       | YES  | state更新は新値セットのみ     | `apps/web/src/App.tsx:857` |
 | 例外より型   | NO   | 非200を例外として扱う         | `apps/web/src/api.ts:84`  |
 
 ### [OPEN]

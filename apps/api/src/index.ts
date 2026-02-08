@@ -1,28 +1,20 @@
 import {
-  buildFallbackFutureDiaryDraft,
-  buildFutureDiaryDraft,
-  buildFutureDiaryDraftLlmSystemPrompt,
-  buildFutureDiaryDraftLlmUserPrompt,
-  futureDiaryDraftBodyJsonSchema,
-} from "@future-diary/core";
-import {
   createAuthSessionRepository,
   createDiaryRepository,
   createDiaryRevisionRepository,
   createUserRepository,
 } from "@future-diary/db";
-import { createWorkersAiVectorizeSearchPort, searchRelevantFragments } from "@future-diary/vector";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
-import { requestOpenAiStructuredOutputText } from "./openaiResponses";
+import type { GenerationQueueMessage } from "./queueMessages";
+import { processGenerationQueueBatch } from "./generationQueueConsumer";
+import { generateFutureDiaryDraft } from "./futureDiaryDraftGeneration";
+import { enqueueGenerationMessage } from "./queueProducer";
+import { sha256Hex } from "./safetyIdentifier";
 import {
-  buildVectorSearchQuery,
   getOptionalExecutionContext,
-  getWorkersAiEmbeddingModel,
-  mergeFragments,
   queueVectorizeUpsert,
-  queueVectorizeUpsertMany,
 } from "./vectorize";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -65,6 +57,8 @@ type WorkerBindings = {
   OPENAI_API_KEY?: string;
   OPENAI_BASE_URL?: string;
   OPENAI_MODEL?: string;
+  GENERATION_QUEUE?: Queue<GenerationQueueMessage>;
+  GENERATION_LOCK?: DurableObjectNamespace;
 };
 
 type AuthContext = {
@@ -105,25 +99,6 @@ app.use(
     maxAge: 600,
   }),
 );
-
-const defaultStyleHints = {
-  openingPhrases: ["今日は無理をせず、少しずつ整えていく一日にしたい。"],
-  closingPhrases: ["夜に事実を追記して、確定日記にする。"],
-  maxParagraphs: 2,
-} as const;
-
-const futureDiaryDraftBodySchema = z.object({
-  body: z.string().trim().min(1),
-});
-
-const truncateForPrompt = (text: string, maxChars: number): string =>
-  text.length <= maxChars ? text : text.slice(0, maxChars) + "...";
-
-const sha256Hex = async (text: string): Promise<string> => {
-  const bytes = new TextEncoder().encode(text);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(hashBuffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-};
 
 const base64UrlEncode = (bytes: Uint8Array): string => {
   let binary = "";
@@ -211,7 +186,6 @@ const requireAuth = async (context: any, next: any): Promise<Response | void> =>
 
   return await next();
 };
-
 app.get("/health", (context) =>
   context.json({
     ok: true,
@@ -373,7 +347,6 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
   const date = parsed.data.date;
   const timezone = parsed.data.timezone;
   const safetyIdentifier = await sha256Hex(userId);
-  const executionCtx = getOptionalExecutionContext(context);
 
   const userRepo = createUserRepository(db);
   const diaryRepo = createDiaryRepository(db);
@@ -381,228 +354,130 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
 
   await userRepo.upsertUser({ id: userId, timezone });
 
-  const existingEntry = await diaryRepo.findByUserAndDate(userId, date);
-  if (existingEntry) {
-    return context.json({
-      ok: true,
-      draft: {
-        title: `${date} の未来日記`,
-        body: existingEntry.finalText ?? existingEntry.generatedText,
-        sourceFragmentIds: [],
-      },
-      meta: {
-        userId,
-        entryId: existingEntry.id,
-        status: existingEntry.status,
-        cached: true,
-        source: "cached",
-      },
-    });
-  }
+  let entry = await diaryRepo.findByUserAndDate(userId, date);
+  const existedBefore = entry !== null;
 
-  const sourceEntries = await diaryRepo.listRecentByUserBeforeDate(userId, date, 20);
-  const fallbackFragments = sourceEntries.map((entry, index) => ({
-    id: entry.id,
-    date: entry.date,
-    relevance: 1 - index / Math.max(sourceEntries.length, 1),
-    text: entry.finalText ?? entry.generatedText,
-  }));
-
-  queueVectorizeUpsertMany({
-    executionCtx,
-    env: context.env,
-    safetyIdentifier,
-    userId,
-    entries: sourceEntries.slice(0, 5).map((entry) => ({
-      id: entry.id,
-      date: entry.date,
-      text: entry.finalText ?? entry.generatedText,
-    })),
-  });
-
-  let recentFragments: readonly (typeof fallbackFragments)[number][] = fallbackFragments;
-
-  if (context.env.AI && context.env.VECTOR_INDEX) {
-    const query = buildVectorSearchQuery(sourceEntries);
-
-    if (query) {
-      try {
-        const port = createWorkersAiVectorizeSearchPort({
-          ai: context.env.AI,
-          embeddingModel: getWorkersAiEmbeddingModel(context.env),
-          vectorIndex: context.env.VECTOR_INDEX,
-        });
-
-        const vectorFragments = await searchRelevantFragments(port, {
-          userId,
-          query,
-          topK: 10,
-          beforeDate: date,
-        });
-
-        recentFragments = mergeFragments(vectorFragments, fallbackFragments, 10);
-      } catch (error) {
-        console.warn("Vectorize retrieval failed; falling back to recency fragments", {
-          safetyIdentifier,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  }
-
-  const llmFragments = recentFragments.slice(0, 5).map((fragment) => ({
-    ...fragment,
-    text: truncateForPrompt(fragment.text, 600),
-  }));
-
-  let draftSource: "llm" | "deterministic" | "fallback" = "deterministic";
-  let draft: { title: string; body: string; sourceFragmentIds: readonly string[] } | null = null;
-
-  const openAiApiKey = context.env.OPENAI_API_KEY;
-  const openAiBaseUrl = context.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
-  const openAiModel = context.env.OPENAI_MODEL ?? "gpt-4o-mini";
-
-  if (openAiApiKey) {
-    const systemPrompt = buildFutureDiaryDraftLlmSystemPrompt();
-    const userPrompt = buildFutureDiaryDraftLlmUserPrompt({
-      date,
-      userTimezone: timezone,
-      recentFragments: llmFragments,
-      styleHints: defaultStyleHints,
-    });
-
-    const llmResult = await requestOpenAiStructuredOutputText({
-      fetcher: fetch,
-      baseUrl: openAiBaseUrl,
-      apiKey: openAiApiKey,
-      model: openAiModel,
-      systemPrompt,
-      userPrompt,
-      jsonSchemaName: "future_diary_draft_body",
-      jsonSchema: futureDiaryDraftBodyJsonSchema,
-      timeoutMs: 12_000,
-      maxOutputTokens: 700,
-      temperature: 0.7,
-      safetyIdentifier,
-    });
-
-    if (!llmResult.ok) {
-      console.warn("OpenAI draft generation failed", {
-        safetyIdentifier,
-        error: llmResult.error,
-      });
-    } else {
-      let parsedJson: unknown;
-      try {
-        parsedJson = JSON.parse(llmResult.value) as unknown;
-      } catch {
-        console.warn("OpenAI output_text was not valid JSON", {
-          safetyIdentifier,
-          length: llmResult.value.length,
-        });
-        parsedJson = null;
-      }
-
-      const parsedBody = futureDiaryDraftBodySchema.safeParse(parsedJson);
-      if (!parsedBody.success) {
-        console.warn("OpenAI JSON output did not match schema", {
-          safetyIdentifier,
-          issues: parsedBody.error.issues.map((issue) => ({ path: issue.path, message: issue.message })),
-        });
-      } else {
-        draftSource = "llm";
-        draft = {
-          title: `${date} の未来日記`,
-          body: parsedBody.data.body,
-          sourceFragmentIds: llmFragments.map((fragment) => fragment.id),
-        };
-      }
-    }
-  }
-
-  if (draft === null) {
-    const draftResult = buildFutureDiaryDraft({
-      date,
-      userTimezone: timezone,
-      recentFragments,
-      styleHints: defaultStyleHints,
-    });
-
-    if (draftResult.ok) {
-      draftSource = "deterministic";
-      draft = draftResult.value;
-    } else if (draftResult.error.type === "NO_SOURCE") {
-      draftSource = "fallback";
-      draft = buildFallbackFutureDiaryDraft({ date, styleHints: defaultStyleHints });
-    } else {
+  if (entry === null) {
+    const entryId = crypto.randomUUID();
+    await diaryRepo.createDraftGenerationPlaceholderIfMissing({ id: entryId, userId, date });
+    entry = await diaryRepo.findByUserAndDate(userId, date);
+    if (entry === null) {
       return context.json(
         {
           ok: false,
-          error: draftResult.error,
+          error: { type: "PERSIST_FAILED", message: "Draft placeholder could not be persisted" },
         },
         500,
       );
     }
   }
 
-  const newEntryId = crypto.randomUUID();
-  await diaryRepo.createDraftIfMissing({
-    id: newEntryId,
-    userId,
-    date,
-    generatedText: draft.body,
-  });
+  let source: "cached" | "queued" | "llm" | "deterministic" | "fallback" = "cached";
 
-  const persistedEntry = await diaryRepo.findByUserAndDate(userId, date);
-  if (!persistedEntry) {
-    return context.json(
-      {
-        ok: false,
-        error: {
-          type: "PERSIST_FAILED",
-          message: "Draft was generated but could not be persisted",
-        },
-      },
-      500,
-    );
+  if (entry.generationStatus === "failed") {
+    await diaryRepo.markDraftGenerationCreated(userId, date);
+    entry = (await diaryRepo.findByUserAndDate(userId, date)) ?? entry;
   }
 
-  const inserted = persistedEntry.id === newEntryId;
+  if (entry.generationStatus !== "completed") {
+    source = "queued";
 
-  if (inserted) {
-    await diaryRevisionRepo.appendRevision({
-      id: crypto.randomUUID(),
-      entryId: persistedEntry.id,
-      kind: "generated",
-      body: draft.body,
-    });
+    if (entry.generationStatus === "created" || entry.generationStatus === "failed") {
+      const enqueueResult = await enqueueGenerationMessage(context.env, {
+        kind: "future_draft_generate",
+        userId,
+        date,
+        timezone,
+      });
+
+      if (!enqueueResult.ok) {
+        if (enqueueResult.reason !== "MISSING_QUEUE") {
+          console.warn("Draft generation enqueue failed; falling back to sync generation", {
+            safetyIdentifier,
+            reason: enqueueResult.reason,
+            message: enqueueResult.message,
+          });
+        }
+
+        try {
+          await diaryRepo.markDraftGenerationProcessing(userId, date);
+
+          const generated = await generateFutureDiaryDraft({
+            env: context.env,
+            diaryRepo,
+            userId,
+            date,
+            timezone,
+            safetyIdentifier,
+          });
+
+          source = generated.source;
+          const completed = await diaryRepo.completeDraftGeneration(userId, date, generated.draft.body);
+          if (!completed) {
+            throw new Error("Draft generation completed but could not be persisted");
+          }
+
+          entry = completed;
+
+          try {
+            await diaryRevisionRepo.appendRevision({
+              id: crypto.randomUUID(),
+              entryId: entry.id,
+              kind: "generated",
+              body: generated.draft.body,
+            });
+          } catch (error) {
+            console.warn("Sync draft generation revision append failed", {
+              safetyIdentifier,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+
+          const enqueueVectorize = await enqueueGenerationMessage(context.env, { kind: "vectorize_upsert", userId, date });
+
+          if (!enqueueVectorize.ok) {
+            const executionCtx = getOptionalExecutionContext(context);
+
+            if (context.env.AI && context.env.VECTOR_INDEX && executionCtx?.waitUntil) {
+              queueVectorizeUpsert({
+                executionCtx,
+                env: context.env,
+                safetyIdentifier,
+                userId,
+                entry: {
+                  id: entry.id,
+                  date: entry.date,
+                  text: entry.finalText ?? entry.generatedText,
+                },
+              });
+            }
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn("Sync draft generation failed", { safetyIdentifier, message });
+          await diaryRepo.markDraftGenerationFailed(userId, date, message);
+          entry = (await diaryRepo.findByUserAndDate(userId, date)) ?? entry;
+        }
+      }
+    }
   }
-
-  queueVectorizeUpsert({
-    executionCtx,
-    env: context.env,
-    safetyIdentifier,
-    userId,
-    entry: {
-      id: persistedEntry.id,
-      date: persistedEntry.date,
-      text: persistedEntry.finalText ?? persistedEntry.generatedText,
-    },
-  });
 
   return context.json({
     ok: true,
     draft: {
       title: `${date} の未来日記`,
-      body: persistedEntry.finalText ?? persistedEntry.generatedText,
-      sourceFragmentIds: inserted ? draft.sourceFragmentIds : [],
+      body: entry.finalText ?? entry.generatedText,
+      sourceFragmentIds: [],
     },
     meta: {
       userId,
-      entryId: persistedEntry.id,
-      status: persistedEntry.status,
-      cached: !inserted,
-      source: inserted ? draftSource : "cached",
+      entryId: entry.id,
+      status: entry.status,
+      generationStatus: entry.generationStatus,
+      generationError: entry.generationError,
+      cached: existedBefore,
+      source,
+      pollAfterMs: entry.generationStatus === "completed" ? 0 : 1500,
     },
   });
 });
@@ -720,9 +595,15 @@ app.post("/v1/diary/entry/save", requireAuth, async (context) => {
     body: parsed.data.body,
   });
 
+  const enqueueVectorize = await enqueueGenerationMessage(context.env, {
+    kind: "vectorize_upsert",
+    userId,
+    date: entry.date,
+  });
+
   const executionCtx = getOptionalExecutionContext(context);
 
-  if (context.env.AI && context.env.VECTOR_INDEX && executionCtx?.waitUntil) {
+  if (!enqueueVectorize.ok && context.env.AI && context.env.VECTOR_INDEX && executionCtx?.waitUntil) {
     const safetyIdentifier = await sha256Hex(userId);
 
     queueVectorizeUpsert({
@@ -780,6 +661,35 @@ app.post("/v1/diary/entry/confirm", requireAuth, async (context) => {
   const userId = auth.userId;
   const diaryRepo = createDiaryRepository(db);
   const diaryRevisionRepo = createDiaryRevisionRepository(db);
+
+  const existing = await diaryRepo.findByUserAndDate(userId, parsed.data.date);
+
+  if (existing === null) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "NOT_FOUND",
+          message: "Diary entry was not found",
+        },
+      },
+      404,
+    );
+  }
+
+  if (existing.generationStatus !== "completed" && existing.finalText === null) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GENERATION_INCOMPLETE",
+          message: "Draft generation is not completed yet",
+        },
+      },
+      409,
+    );
+  }
+
   const entry = await diaryRepo.confirmEntry(userId, parsed.data.date);
 
   if (entry === null) {
@@ -802,9 +712,15 @@ app.post("/v1/diary/entry/confirm", requireAuth, async (context) => {
     body: entry.finalText ?? entry.generatedText,
   });
 
+  const enqueueVectorizeConfirm = await enqueueGenerationMessage(context.env, {
+    kind: "vectorize_upsert",
+    userId,
+    date: entry.date,
+  });
+
   const executionCtx = getOptionalExecutionContext(context);
 
-  if (context.env.AI && context.env.VECTOR_INDEX && executionCtx?.waitUntil) {
+  if (!enqueueVectorizeConfirm.ok && context.env.AI && context.env.VECTOR_INDEX && executionCtx?.waitUntil) {
     const safetyIdentifier = await sha256Hex(userId);
 
     queueVectorizeUpsert({
@@ -945,6 +861,10 @@ app.post("/v1/user/delete", requireAuth, async (context) => {
 });
 
 export { app };
+export { DraftGenerationLock } from "./draftGenerationLock";
 export default {
   fetch: app.fetch,
+  queue: async (batch: MessageBatch<unknown>, env: WorkerBindings, ctx: ExecutionContext) => {
+    await processGenerationQueueBatch(batch, env, ctx);
+  },
 };

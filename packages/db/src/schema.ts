@@ -1,6 +1,8 @@
 export const diaryStatusValues = ["draft", "confirmed"] as const;
 export type DiaryStatus = (typeof diaryStatusValues)[number];
 
+export const draftGenerationStatusValues = ["created", "processing", "failed", "completed"] as const;
+export type DraftGenerationStatus = (typeof draftGenerationStatusValues)[number];
 export const diaryEntryRevisionKindValues = ["generated", "saved", "confirmed"] as const;
 export type DiaryEntryRevisionKind = (typeof diaryEntryRevisionKindValues)[number];
 
@@ -9,6 +11,8 @@ export interface DiaryRow {
   user_id: string;
   date: string;
   status: DiaryStatus;
+  generation_status: DraftGenerationStatus;
+  generation_error: string | null;
   generated_text: string;
   final_text: string | null;
   created_at: string;

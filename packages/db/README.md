@@ -30,6 +30,7 @@
 - D1 row <-> domain entry の変換を行う。
 - `findByUserAndDate` / `listRecentByUserBeforeDate` / `listRecentByUserOnOrBeforeDate` を提供する。
 - `createDraftIfMissing` / `updateFinalText` / `confirmEntry` を提供する。
+- 生成の非同期化向けに `generation_status` / `generation_error` を管理し、draft の状態遷移 helper を提供する。
 - `deleteByUserAndDate` / `deleteByUser` を提供する。
 - `appendRevision` を提供する（生成/保存/確定のスナップショット保持）。
 - `upsertUser` を提供する（`diary_entries.user_id` の FK を満たすため）。
@@ -40,22 +41,23 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/repository.ts:15` — `toDiaryEntry`。
-- [E2] `packages/db/src/repository.ts:58` — `DiaryRepository` interface。
-- [E3] `packages/db/src/repository.ts:107` — `createDraftIfMissing`。
-- [E4] `packages/db/src/repository.ts:120` — `updateFinalText`。
-- [E5] `packages/db/src/repository.ts:134` — `confirmEntry`。
-- [E6] `packages/db/src/repository.ts:150` — `deleteByUserAndDate`。
-- [E7] `packages/db/src/repository.ts:188` — `createDiaryRevisionRepository`。
-- [E8] `packages/db/src/repository.ts:200` — `UserRepository` interface。
-- [E9] `packages/db/src/repository.ts:244` — `AuthSessionRepository` interface。
+- [E2] `packages/db/src/repository.ts:60` — `DiaryRepository` interface。
+- [E3] `packages/db/src/repository.ts:115` — `createDraftIfMissing`。
+- [E4] `packages/db/src/repository.ts:128` — `createDraftGenerationPlaceholderIfMissing`。
+- [E5] `packages/db/src/repository.ts:229` — `updateFinalText`。
+- [E6] `packages/db/src/repository.ts:243` — `confirmEntry`。
+- [E7] `packages/db/src/repository.ts:259` — `deleteByUserAndDate`。
+- [E8] `packages/db/src/repository.ts:299` — `DiaryRevisionRepository` interface。
+- [E9] `packages/db/src/repository.ts:359` — `AuthSessionRepository` interface。
 - [E10] `packages/db/src/migrations/0001_initial.sql:9` — `diary_entries` table。
 - [E11] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` — `diary_entry_revisions` table。
 - [E12] `packages/db/src/migrations/0003_auth_sessions.sql:1` — `auth_sessions` table。
-- [E13] `packages/db/src/repository.ts:78` — `toDiaryEntry` call。
+- [E13] `packages/db/src/migrations/0004_generation_status.sql:1` — `generation_status` / `generation_error` 追加。
+- [E14] `packages/db/src/repository.ts:86` — `toDiaryEntry` call。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
   - `findByUserAndDate` -> `toDiaryEntry`:
-    - call: [E13] `packages/db/src/repository.ts:78`
+    - call: [E14] `packages/db/src/repository.ts:86`
     - def: [E1] `packages/db/src/repository.ts:15`
 
 </details>
@@ -127,17 +129,18 @@
 
 | 公開シンボル            | 種別      | 定義元              | 目的              | 根拠                                            |
 | ----------------------- | --------- | ------------------- | ----------------- | ----------------------------------------------- |
-| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:69`              |
-| `createDiaryRevisionRepository` | function  | `src/repository.ts` | revision 追記 | `packages/db/src/repository.ts:188`              |
-| `createUserRepository`  | function  | `src/repository.ts` | D1 user read/write | `packages/db/src/repository.ts:206`              |
-| `createAuthSessionRepository` | function | `src/repository.ts` | D1 auth session | `packages/db/src/repository.ts:252` |
-| `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:7`                   |
-| `UserRow`               | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:26`                  |
-| `DiaryEntryRevisionRow` | interface | `src/schema.ts`     | revision row契約  | `packages/db/src/schema.ts:18`                   |
-| `AuthSessionRow`        | interface | `src/schema.ts`     | auth session row契約 | `packages/db/src/schema.ts:34`                  |
+| `createDiaryRepository` | function  | `src/repository.ts` | D1 repository生成 | `packages/db/src/repository.ts:77`              |
+| `createDiaryRevisionRepository` | function  | `src/repository.ts` | revision 追記 | `packages/db/src/repository.ts:303`              |
+| `createUserRepository`  | function  | `src/repository.ts` | D1 user read/write | `packages/db/src/repository.ts:321`              |
+| `createAuthSessionRepository` | function | `src/repository.ts` | D1 auth session | `packages/db/src/repository.ts:367` |
+| `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:9`                   |
+| `UserRow`               | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:30`                  |
+| `DiaryEntryRevisionRow` | interface | `src/schema.ts`     | revision row契約  | `packages/db/src/schema.ts:22`                  |
+| `AuthSessionRow`        | interface | `src/schema.ts`     | auth session row契約 | `packages/db/src/schema.ts:38`                  |
 | `0001_initial.sql`      | migration | `src/migrations`    | schema初期化      | `packages/db/src/migrations/0001_initial.sql:1` |
 | `0002_diary_entry_revisions.sql` | migration | `src/migrations`    | revision 追加     | `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` |
 | `0003_auth_sessions.sql` | migration | `src/migrations`    | auth session追加  | `packages/db/src/migrations/0003_auth_sessions.sql:1` |
+| `0004_generation_status.sql` | migration | `src/migrations` | generation status追加 | `packages/db/src/migrations/0004_generation_status.sql:1` |
 
 ### 使い方（必須）
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { app } from "./index";
+import { processGenerationQueueBatch } from "./generationQueueConsumer";
 
 const createInMemoryD1 = () => {
   type DiaryRow = {
@@ -7,6 +8,8 @@ const createInMemoryD1 = () => {
     user_id: string;
     date: string;
     status: "draft" | "confirmed";
+    generation_status: "created" | "processing" | "failed" | "completed";
+    generation_error: string | null;
     generated_text: string;
     final_text: string | null;
     created_at: string;
@@ -135,7 +138,7 @@ const createInMemoryD1 = () => {
           }
 
           if (query.includes("INSERT INTO diary_entries")) {
-            const [id, userId, date, generatedText] = bound as [string, string, string, string];
+            const [id, userId, date, generatedText] = bound as [string, string, string, string?];
             const key = entryKey(userId, date);
 
             if (!entries.has(key)) {
@@ -144,7 +147,9 @@ const createInMemoryD1 = () => {
                 user_id: userId,
                 date,
                 status: "draft",
-                generated_text: generatedText,
+                generation_status: bound.length >= 4 ? "completed" : "created",
+                generation_error: null,
+                generated_text: generatedText ?? "",
                 final_text: null,
                 created_at: now(),
                 updated_at: now(),
@@ -176,6 +181,101 @@ const createInMemoryD1 = () => {
               sessions.set(sessionId, {
                 ...existing,
                 last_used_at: now(),
+              });
+            }
+
+            return { success: true };
+          }
+
+          if (
+            query.includes("UPDATE diary_entries SET generation_status = 'created'") &&
+            query.includes("generation_error = ?")
+          ) {
+            const [generationError, userId, date] = bound as [string, string, string];
+            const key = entryKey(userId, date);
+            const existing = entries.get(key);
+
+            if (existing) {
+              entries.set(key, {
+                ...existing,
+                generation_status: "created",
+                generation_error: generationError,
+                updated_at: now(),
+              });
+            }
+
+            return { success: true };
+          }
+
+          if (
+            query.includes("UPDATE diary_entries SET generation_status = 'created'") &&
+            query.includes("generation_error = NULL")
+          ) {
+            const [userId, date] = bound as [string, string];
+            const key = entryKey(userId, date);
+            const existing = entries.get(key);
+
+            if (existing) {
+              entries.set(key, {
+                ...existing,
+                generation_status: "created",
+                generation_error: null,
+                updated_at: now(),
+              });
+            }
+
+            return { success: true };
+          }
+
+          if (query.includes("UPDATE diary_entries SET generation_status = 'processing'")) {
+            const [userId, date] = bound as [string, string];
+            const key = entryKey(userId, date);
+            const existing = entries.get(key);
+
+            if (existing) {
+              entries.set(key, {
+                ...existing,
+                generation_status: "processing",
+                generation_error: null,
+                updated_at: now(),
+              });
+            }
+
+            return { success: true };
+          }
+
+          if (query.includes("UPDATE diary_entries SET generation_status = 'failed'")) {
+            const [generationError, userId, date] = bound as [string, string, string];
+            const key = entryKey(userId, date);
+            const existing = entries.get(key);
+
+            if (existing) {
+              entries.set(key, {
+                ...existing,
+                generation_status: "failed",
+                generation_error: generationError,
+                updated_at: now(),
+              });
+            }
+
+            return { success: true };
+          }
+
+          if (
+            query.includes("UPDATE diary_entries SET generation_status = 'completed'") &&
+            query.includes("generated_text = ?")
+          ) {
+            const [generatedText, userId, date] = bound as [string, string, string];
+            const key = entryKey(userId, date);
+            const existing = entries.get(key);
+
+            if (existing) {
+              entries.set(key, {
+                ...existing,
+                generation_status: "completed",
+                generation_error: null,
+                generated_text: generatedText,
+                updated_at: now(),
               });
             }
 
@@ -371,13 +471,14 @@ describe("future-diary-api", () => {
     const json1 = (await response1.json()) as {
       ok: boolean;
       draft?: { title: string; body: string };
-      meta?: { cached: boolean; entryId: string };
+      meta?: { cached: boolean; entryId: string; generationStatus?: string };
     };
 
     expect(response1.status).toBe(200);
     expect(json1.ok).toBe(true);
     expect(json1.draft?.title).toBe("2026-02-07 の未来日記");
     expect(json1.meta?.cached).toBe(false);
+    expect(json1.meta?.generationStatus).toBe("completed");
     expect(db.__data.revisions.length).toBe(1);
     expect(db.__data.revisions[0]?.kind).toBe("generated");
     expect(db.__data.revisions[0]?.entry_id).toBe(json1.meta?.entryId);
@@ -387,14 +488,89 @@ describe("future-diary-api", () => {
     const json2 = (await response2.json()) as {
       ok: boolean;
       draft?: { title: string; body: string };
-      meta?: { cached: boolean; entryId: string };
+      meta?: { cached: boolean; entryId: string; generationStatus?: string };
     };
 
     expect(response2.status).toBe(200);
     expect(json2.ok).toBe(true);
     expect(json2.draft?.body).toBe(json1.draft?.body);
     expect(json2.meta?.cached).toBe(true);
+    expect(json2.meta?.generationStatus).toBe("completed");
     expect(db.__data.revisions.length).toBe(1);
+  });
+
+  test("POST /v1/future-diary/draft enqueues async generation when queue binding exists", async () => {
+    const db = createInMemoryD1();
+    const sent: unknown[] = [];
+
+    const env = {
+      DB: db as unknown as D1Database,
+      GENERATION_QUEUE: {
+        async send(message: unknown) {
+          sent.push(message);
+        },
+      } as unknown as Queue<unknown>,
+    };
+
+    const accessToken = await createAuthSession(env);
+
+    const requestInit = {
+      method: "POST",
+      body: JSON.stringify({
+        date: "2026-02-07",
+        timezone: "Asia/Tokyo",
+      }),
+      headers: authJsonHeaders(accessToken),
+    } as const;
+
+    const response1 = await app.request("/v1/future-diary/draft", requestInit, env);
+    const json1 = (await response1.json()) as {
+      ok: boolean;
+      draft?: { body: string };
+      meta?: { userId?: string; generationStatus?: string; source?: string };
+    };
+
+    expect(response1.status).toBe(200);
+    expect(json1.ok).toBe(true);
+    expect(json1.meta?.generationStatus).toBe("created");
+    expect(json1.meta?.source).toBe("queued");
+    expect(typeof json1.draft?.body).toBe("string");
+
+    const userId = json1.meta?.userId;
+    expect(typeof userId).toBe("string");
+
+    expect(
+      sent.some(
+        (message) => {
+          if (typeof message !== "object" || message === null) {
+            return false;
+          }
+
+          const record = message as { kind?: unknown; userId?: unknown };
+          return record.kind === "future_draft_generate" && record.userId === userId;
+        },
+      ),
+    ).toBe(true);
+
+    const batch = {
+      messages: sent.map((body) => ({
+        body,
+        ack: () => {},
+        retry: () => {},
+      })),
+    } as unknown as MessageBatch<unknown>;
+
+    await processGenerationQueueBatch(batch, env as unknown as any, {} as ExecutionContext);
+
+    const response2 = await app.request("/v1/future-diary/draft", requestInit, env);
+    const json2 = (await response2.json()) as { ok: boolean; draft?: { body: string }; meta?: { generationStatus?: string } };
+
+    expect(response2.status).toBe(200);
+    expect(json2.ok).toBe(true);
+    expect(json2.meta?.generationStatus).toBe("completed");
+    expect(json2.draft?.body.length).toBeGreaterThan(0);
+    expect(db.__data.revisions.length).toBe(1);
+    expect(db.__data.revisions[0]?.kind).toBe("generated");
   });
 
   test("POST /v1/diary/entry/delete deletes an entry", async () => {

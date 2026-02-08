@@ -31,7 +31,7 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/main.tsx:12` — mount。
-- [E2] `apps/web/src/App.tsx:481` — draft auto load。
+- [E2] `apps/web/src/App.tsx:625` — draft auto load。
 - [E3] `apps/web/src/api.ts:65` — fetch boundary。
 </details>
 
@@ -56,8 +56,8 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:85`
-- [E2] `apps/web/src/api.ts:140`
+- [E1] `apps/web/src/App.tsx:119`
+- [E2] `apps/web/src/api.ts:147`
 - [E3] `apps/web/src/app.css:71`
 </details>
 
@@ -100,16 +100,16 @@
 
 | 公開シンボル  | 種別      | 定義元    | 目的           | 根拠                     |
 | ------------- | --------- | --------- | -------------- | ------------------------ |
-| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:85` |
-| `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:140` |
-| `createAuthSession`     | function  | `api.ts`  | session 作成 | `apps/web/src/api.ts:155` |
-| `fetchAuthMe`           | function  | `api.ts`  | session 検証 | `apps/web/src/api.ts:166` |
-| `logout`                | function  | `api.ts`  | session 破棄 | `apps/web/src/api.ts:169` |
-| `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:187` |
-| `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:196` |
-| `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:208` |
-| `deleteDiaryEntry`      | function  | `api.ts`  | diary 削除 | `apps/web/src/api.ts:219` |
-| `deleteUser`            | function  | `api.ts`  | user 削除 | `apps/web/src/api.ts:222` |
+| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:119` |
+| `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:147` |
+| `createAuthSession`     | function  | `api.ts`  | session 作成 | `apps/web/src/api.ts:162` |
+| `fetchAuthMe`           | function  | `api.ts`  | session 検証 | `apps/web/src/api.ts:173` |
+| `logout`                | function  | `api.ts`  | session 破棄 | `apps/web/src/api.ts:176` |
+| `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:194` |
+| `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:203` |
+| `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:215` |
+| `deleteDiaryEntry`      | function  | `api.ts`  | diary 削除 | `apps/web/src/api.ts:226` |
+| `deleteUser`            | function  | `api.ts`  | user 削除 | `apps/web/src/api.ts:229` |
 
 ### 使い方（必須）
 
@@ -165,7 +165,7 @@ import { App } from "./App";
   - draft:
     - auth: `Authorization: Bearer <accessToken>`
     - request: `{ date, timezone }`
-    - response: `{ ok, draft, meta }`
+    - response: `{ ok, draft, meta }`（`meta.generationStatus` が `completed` になるまで polling）
   - save:
     - request: `{ date, body }`
   - confirm:
@@ -177,7 +177,7 @@ import { App } from "./App";
 - 失敗セマンティクス:
   - 非200は例外として扱い、UI は toast に表示する。
 - メインフロー:
-  - mount -> 当日 draft 生成 -> editor 表示。
+  - mount -> 当日 draft 生成トリガ -> generationStatus を polling -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
 - I/O 境界:
@@ -200,7 +200,7 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:481` — auto load。
+- [E1] `apps/web/src/App.tsx:625` — auto load。
 - [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
 </details>
 
@@ -212,9 +212,9 @@ flowchart TD
 
 | リスク            | 対策（検証入口） | 根拠                      |
 | ----------------- | ---------------- | ------------------------- |
-| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:195` |
-| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:43` |
-| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:699` |
+| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:332` |
+| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:61` |
+| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:848` |
 
 <details><summary>根拠（Evidence）</summary>
 

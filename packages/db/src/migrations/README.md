@@ -31,9 +31,9 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/db/src/migrations/0001_initial.sql:1`
-- [E2] `packages/db/src/migrations/0001_initial.sql:9`
-- [E3] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1`
-- [E4] `packages/db/src/migrations/0003_auth_sessions.sql:1`
+- [E2] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1`
+- [E3] `packages/db/src/migrations/0003_auth_sessions.sql:1`
+- [E4] `packages/db/src/migrations/0004_generation_status.sql:1`
 </details>
 
 ## スコープ
@@ -42,6 +42,7 @@
   - `0001_initial.sql`
   - `0002_diary_entry_revisions.sql`
   - `0003_auth_sessions.sql`
+  - `0004_generation_status.sql`
 - 対象外（Non-goals）:
   - query layer
 - 委譲（See）:
@@ -79,6 +80,7 @@
     ├── 0001_initial.sql         # 初期スキーマ
     ├── 0002_diary_entry_revisions.sql # diary entry revision snapshots
     ├── 0003_auth_sessions.sql   # auth session（bearer token）スキーマ
+    ├── 0004_generation_status.sql # generation status/error columns
     └── README.md                # この文書
 ```
 
@@ -98,6 +100,7 @@
 | `0001_initial.sql` | SQL contract | `0001_initial.sql` | schema初期化 | `packages/db/src/migrations/0001_initial.sql:1` |
 | `0002_diary_entry_revisions.sql` | SQL contract | `0002_diary_entry_revisions.sql` | revision 追加 | `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` |
 | `0003_auth_sessions.sql` | SQL contract | `0003_auth_sessions.sql` | auth session 追加 | `packages/db/src/migrations/0003_auth_sessions.sql:1` |
+| `0004_generation_status.sql` | SQL contract | `0004_generation_status.sql` | generation status 追加 | `packages/db/src/migrations/0004_generation_status.sql:1` |
 
 ### 使い方（必須）
 
@@ -126,6 +129,7 @@ bun run --cwd packages/db migrate-remote
 - `0001_initial.sql`
 - `0002_diary_entry_revisions.sql`
 - `0003_auth_sessions.sql`
+- `0004_generation_status.sql`
 
 ### 検証入口（CI / ローカル）
 
@@ -162,6 +166,7 @@ flowchart TD
   SQL -->|"contract"| D["diary_entries"]
   SQL2["0002_diary_entry_revisions.sql"] -->|"contract"| DR["diary_entry_revisions"]
   SQL3["0003_auth_sessions.sql"] -->|"contract"| AS["auth_sessions"]
+  SQL4["0004_generation_status.sql"] -->|"contract"| GS["diary_entries.generation_status"]
 ```
 
 <details><summary>根拠（Evidence）</summary>
@@ -170,6 +175,7 @@ flowchart TD
 - [E2] `packages/db/src/migrations/0001_initial.sql:9`
 - [E3] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1`
 - [E4] `packages/db/src/migrations/0003_auth_sessions.sql:1`
+- [E5] `packages/db/src/migrations/0004_generation_status.sql:1`
 </details>
 
 ## 品質
