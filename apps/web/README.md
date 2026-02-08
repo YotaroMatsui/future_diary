@@ -87,6 +87,7 @@
 ```text
 .
 └── apps/web/
+    ├── e2e-smoke.test.ts         # E2E smoke（web -> api -> d1）
     ├── src/                     # UI実装 / See: src/README.md
     ├── vite.config.ts           # Vite config
     ├── index.html               # HTML entry
@@ -148,17 +149,21 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
 
 - [E1] `bun --cwd apps/web run typecheck`
 - [E2] `bun --cwd apps/web run build`
+- [E3] `bun --cwd apps/web run smoke`
 
 ### テスト（根拠として使う場合）
 
 | テストファイル | コマンド                       | 検証内容       | 主要 assertion | 根拠                      |
 | -------------- | ------------------------------ | -------------- | -------------- | ------------------------- |
-| N/A            | `bun --cwd apps/web run build` | UI bundle 成立 | build success  | `apps/web/package.json:8` |
+| `apps/web/e2e-smoke.test.ts` | `bun --cwd apps/web run smoke` | E2E smoke（web -> api -> d1） | draft/save/confirm/list が成功 | `apps/web/e2e-smoke.test.ts:1` |
+| N/A            | `bun --cwd apps/web run build` | UI bundle 成立 | build success  | `apps/web/package.json:9` |
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/api.ts:1`
 - [E2] `apps/web/.env.example:1`
+- [E3] `apps/web/package.json:7` — smoke script。
+- [E4] `apps/web/e2e-smoke.test.ts:1` — smoke flow（draft/save/confirm/list）。
 </details>
 
 ## 設計ノート
@@ -207,7 +212,7 @@ flowchart TD
 ## 品質
 
 - テスト戦略:
-  - build/typecheck を SSOT とする（E2E は `make dev-api` + `make dev-web` で手動確認）。
+  - build/typecheck を SSOT とし、統合の退行検知は `make smoke`（`apps/web/e2e-smoke.test.ts`）で web API client -> api -> SQLite(D1 schema) の最小フローを検証する。
 - 主なリスクと対策（3〜7）:
 
 | リスク            | 対策（検証入口）          | 根拠                      |
@@ -220,6 +225,8 @@ flowchart TD
 
 - [E1] `apps/web/src/api.ts:67` — 非200で例外化。
 - [E2] `apps/web/src/App.tsx:162` — 例外を toast 表示。
+- [E3] `Makefile:50` — `make smoke` target。
+- [E4] `apps/web/e2e-smoke.test.ts:1` — E2E smoke。
 </details>
 
 ## 内部

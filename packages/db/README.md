@@ -86,7 +86,8 @@
 
 - [E1] `packages/db/package.json:9`
 - [E2] `packages/db/package.json:10`
-- [E3] `Makefile:30`
+- [E3] `Makefile:32`
+- [E4] `Makefile:35`
 </details>
 
 ## ディレクトリ構成
