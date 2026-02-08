@@ -31,8 +31,8 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/db/src/schema.ts:4`
-- [E2] `packages/db/src/repository.ts:26`
+- [E1] `packages/db/src/schema.ts:9`
+- [E2] `packages/db/src/repository.ts:60`
 </details>
 
 ## スコープ
@@ -87,7 +87,9 @@
 
 - 提供:
   - `createDiaryRepository`
+  - `createDiaryRevisionRepository`
   - `createUserRepository`
+  - `createAuthSessionRepository`
   - schema interfaces
 - 非提供:
   - DB lifecycle
@@ -96,8 +98,10 @@
 
 | 公開シンボル            | 種別     | 定義元          | 目的   | 根拠                               |
 | ----------------------- | -------- | --------------- | ------ | ---------------------------------- |
-| `createDiaryRepository` | function | `repository.ts` | D1操作 | `packages/db/src/repository.ts:35` |
-| `createUserRepository`  | function | `repository.ts` | user upsert | `packages/db/src/repository.ts:130` |
+| `createDiaryRepository` | function | `repository.ts` | D1操作 | `packages/db/src/repository.ts:77` |
+| `createDiaryRevisionRepository` | function | `repository.ts` | revision 追記 | `packages/db/src/repository.ts:303` |
+| `createUserRepository`  | function | `repository.ts` | user read/write | `packages/db/src/repository.ts:321` |
+| `createAuthSessionRepository`  | function | `repository.ts` | auth session read/write | `packages/db/src/repository.ts:367` |
 
 ### 使い方（必須）
 
@@ -171,11 +175,11 @@ flowchart TD
 
 | リスク        | 対策（検証入口）          | 根拠                          |
 | ------------- | ------------------------- | ----------------------------- |
-| row契約不整合 | schema interface をSSOT化 | `packages/db/src/schema.ts:4` |
+| row契約不整合 | schema interface をSSOT化 | `packages/db/src/schema.ts:7` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/db/src/schema.ts:4`
+- [E1] `packages/db/src/schema.ts:7`
 </details>
 
 ## 内部

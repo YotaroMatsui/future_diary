@@ -48,11 +48,26 @@ const toApiErrorMessage = (payload: unknown): string => {
   return "Unexpected API error";
 };
 
-const postJson = async <TResponse>(url: string, payload: unknown): Promise<TResponse> => {
+type RequestOptions = {
+  accessToken?: string;
+};
+
+const buildAuthHeaders = (options?: RequestOptions): Record<string, string> => {
+  if (!options?.accessToken) {
+    return {};
+  }
+
+  return {
+    authorization: `Bearer ${options.accessToken}`,
+  };
+};
+
+const postJson = async <TResponse>(url: string, payload: unknown, options?: RequestOptions): Promise<TResponse> => {
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      ...buildAuthHeaders(options),
     },
     body: JSON.stringify(payload),
   });
@@ -72,13 +87,38 @@ const postJson = async <TResponse>(url: string, payload: unknown): Promise<TResp
   return json as TResponse;
 };
 
+const getJson = async <TResponse>(url: string, options?: RequestOptions): Promise<TResponse> => {
+  const response = await fetch(url, {
+    method: "GET",
+    headers: buildAuthHeaders(options),
+  });
+
+  let json: unknown;
+  try {
+    json = (await response.json()) as unknown;
+  } catch {
+    json = null;
+  }
+
+  if (!response.ok) {
+    const details = toApiErrorMessage(json);
+    throw new Error(`${response.status} ${response.statusText}\n${details}`.trim());
+  }
+
+  return json as TResponse;
+};
+
 export type DiaryStatus = "draft" | "confirmed";
+
+export type DraftGenerationStatus = "created" | "processing" | "failed" | "completed";
 
 export type DiaryEntry = {
   id: string;
   userId: string;
   date: string;
   status: DiaryStatus;
+  generationStatus: DraftGenerationStatus;
+  generationError: string | null;
   generatedText: string;
   finalText: string | null;
   createdAt: string;
@@ -96,13 +136,45 @@ export type FutureDiaryDraftResponse = {
     userId: string;
     entryId: string;
     status: DiaryStatus;
+    generationStatus: DraftGenerationStatus;
+    generationError: string | null;
     cached: boolean;
-    source: "llm" | "deterministic" | "fallback" | "cached";
+    source: "llm" | "deterministic" | "fallback" | "cached" | "queued";
+    pollAfterMs: number;
   };
 };
 
-export const fetchFutureDiaryDraft = async (baseUrl: string, payload: { userId: string; date: string; timezone: string }) =>
-  await postJson<FutureDiaryDraftResponse>(`${baseUrl}/v1/future-diary/draft`, payload);
+export const fetchFutureDiaryDraft = async (
+  baseUrl: string,
+  accessToken: string,
+  payload: { date: string; timezone: string },
+) => await postJson<FutureDiaryDraftResponse>(`${baseUrl}/v1/future-diary/draft`, payload, { accessToken });
+
+export type AuthSessionCreateResponse = {
+  ok: true;
+  accessToken: string;
+  user: {
+    id: string;
+    timezone: string;
+  };
+};
+
+export const createAuthSession = async (baseUrl: string, payload: { timezone: string }) =>
+  await postJson<AuthSessionCreateResponse>(`${baseUrl}/v1/auth/session`, payload);
+
+export type AuthMeResponse = {
+  ok: true;
+  user: {
+    id: string;
+    timezone: string;
+  };
+};
+
+export const fetchAuthMe = async (baseUrl: string, accessToken: string) =>
+  await getJson<AuthMeResponse>(`${baseUrl}/v1/auth/me`, { accessToken });
+
+export const logout = async (baseUrl: string, accessToken: string) =>
+  await postJson<{ ok: true }>(`${baseUrl}/v1/auth/logout`, {}, { accessToken });
 
 export type DiaryEntryGetResponse = {
   ok: true;
@@ -110,8 +182,8 @@ export type DiaryEntryGetResponse = {
   body: string;
 };
 
-export const fetchDiaryEntry = async (baseUrl: string, payload: { userId: string; date: string }) =>
-  await postJson<DiaryEntryGetResponse>(`${baseUrl}/v1/diary/entry/get`, payload);
+export const fetchDiaryEntry = async (baseUrl: string, accessToken: string, payload: { date: string }) =>
+  await postJson<DiaryEntryGetResponse>(`${baseUrl}/v1/diary/entry/get`, payload, { accessToken });
 
 export type DiaryEntrySaveResponse = {
   ok: true;
@@ -119,8 +191,8 @@ export type DiaryEntrySaveResponse = {
   body: string;
 };
 
-export const saveDiaryEntry = async (baseUrl: string, payload: { userId: string; date: string; body: string }) =>
-  await postJson<DiaryEntrySaveResponse>(`${baseUrl}/v1/diary/entry/save`, payload);
+export const saveDiaryEntry = async (baseUrl: string, accessToken: string, payload: { date: string; body: string }) =>
+  await postJson<DiaryEntrySaveResponse>(`${baseUrl}/v1/diary/entry/save`, payload, { accessToken });
 
 export type DiaryEntryConfirmResponse = {
   ok: true;
@@ -128,8 +200,8 @@ export type DiaryEntryConfirmResponse = {
   body: string;
 };
 
-export const confirmDiaryEntry = async (baseUrl: string, payload: { userId: string; date: string }) =>
-  await postJson<DiaryEntryConfirmResponse>(`${baseUrl}/v1/diary/entry/confirm`, payload);
+export const confirmDiaryEntry = async (baseUrl: string, accessToken: string, payload: { date: string }) =>
+  await postJson<DiaryEntryConfirmResponse>(`${baseUrl}/v1/diary/entry/confirm`, payload, { accessToken });
 
 export type DiaryEntryWithBody = DiaryEntry & {
   body: string;
@@ -142,5 +214,17 @@ export type DiaryEntriesListResponse = {
 
 export const listDiaryEntries = async (
   baseUrl: string,
-  payload: { userId: string; onOrBeforeDate?: string; limit?: number },
-) => await postJson<DiaryEntriesListResponse>(`${baseUrl}/v1/diary/entries/list`, payload);
+  accessToken: string,
+  payload: { onOrBeforeDate?: string; limit?: number },
+) => await postJson<DiaryEntriesListResponse>(`${baseUrl}/v1/diary/entries/list`, payload, { accessToken });
+
+export type DiaryEntryDeleteResponse = {
+  ok: true;
+  deleted: boolean;
+};
+
+export const deleteDiaryEntry = async (baseUrl: string, accessToken: string, payload: { date: string }) =>
+  await postJson<DiaryEntryDeleteResponse>(`${baseUrl}/v1/diary/entry/delete`, payload, { accessToken });
+
+export const deleteUser = async (baseUrl: string, accessToken: string) =>
+  await postJson<{ ok: true }>(`${baseUrl}/v1/user/delete`, {}, { accessToken });

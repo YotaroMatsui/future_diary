@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --host 127.0.0.1 --port 5173",
+    "smoke": "bun test --timeout=60000 e2e-smoke.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "vite build",
-    "lint": "oxlint src",
-    "lint:fix": "oxlint src --fix"
+    "lint": "oxlint src e2e-smoke.test.ts",
+    "lint:fix": "oxlint src e2e-smoke.test.ts --fix"
   },
   "dependencies": {
     "@future-diary/ui": "workspace:*",

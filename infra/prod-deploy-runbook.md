@@ -158,30 +158,47 @@ curl "$API_BASE_URL/health"
 
 ```bash
 API_BASE_URL="https://<api-base-url>"
-USER_ID="smoke-user"
 DATE="$(date +%F)"
 TZ="Asia/Tokyo"
 
+# session を作成し、accessToken を控える（Bearer token）。
+curl -sS -X POST "$API_BASE_URL/v1/auth/session" \
+  -H 'content-type: application/json' \
+  -d "{\"timezone\":\"$TZ\"}"
+
+ACCESS_TOKEN="<accessToken>"
+
 curl -sS -X POST "$API_BASE_URL/v1/future-diary/draft" \
   -H 'content-type: application/json' \
-  -d "{\"userId\":\"$USER_ID\",\"date\":\"$DATE\",\"timezone\":\"$TZ\"}"
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -d "{\"date\":\"$DATE\",\"timezone\":\"$TZ\"}"
+
+# meta.generationStatus が created/processing の場合は少し待って再度叩く（polling）。
+sleep 2
+curl -sS -X POST "$API_BASE_URL/v1/future-diary/draft" \
+  -H 'content-type: application/json' \
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -d "{\"date\":\"$DATE\",\"timezone\":\"$TZ\"}"
 
 curl -sS -X POST "$API_BASE_URL/v1/diary/entry/save" \
   -H 'content-type: application/json' \
-  -d "{\"userId\":\"$USER_ID\",\"date\":\"$DATE\",\"body\":\"smoke save at $DATE\"}"
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -d "{\"date\":\"$DATE\",\"body\":\"smoke save at $DATE\"}"
 
 curl -sS -X POST "$API_BASE_URL/v1/diary/entry/confirm" \
   -H 'content-type: application/json' \
-  -d "{\"userId\":\"$USER_ID\",\"date\":\"$DATE\"}"
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -d "{\"date\":\"$DATE\"}"
 
 curl -sS -X POST "$API_BASE_URL/v1/diary/entries/list" \
   -H 'content-type: application/json' \
-  -d "{\"userId\":\"$USER_ID\",\"onOrBeforeDate\":\"$DATE\",\"limit\":10}"
+  -H "authorization: Bearer $ACCESS_TOKEN" \
+  -d "{\"onOrBeforeDate\":\"$DATE\",\"limit\":10}"
 ```
 
 期待値（概要）:
 
-- `/v1/future-diary/draft`: `ok: true` が返り、`meta.source` が `cached|llm|deterministic|fallback` のいずれかになる
+- `/v1/future-diary/draft`: `ok: true` が返り、`meta.source` は `cached|queued|llm|deterministic|fallback` のいずれか、`meta.generationStatus` は `created|processing|completed|failed` を取りうる
 - `/v1/diary/entry/save`: `ok: true` が返り、`body` が保存内容になる
 - `/v1/diary/entry/confirm`: `ok: true` が返り、`entry.status` が `confirmed` になる
 - `/v1/diary/entries/list`: `ok: true` が返り、`entries[].body` が取れる
@@ -208,7 +225,8 @@ curl -sS -X POST "$JOBS_BASE_URL/v1/vector/reindex" \
 ### 6.4 Web smoke
 
 - Pages の URL を開く
-- userId / timezone を入力
+- timezone を入力
+- 「新しく始める」または access key（Bearer token）でログイン
 - draft が表示される
 - edit -> save -> confirm が成功する
 - history list に当日分が表示される

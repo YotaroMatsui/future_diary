@@ -70,8 +70,8 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `Makefile:21`
-- [E2] `Makefile:51`
+- [E1] `Makefile:23`
+- [E2] `Makefile:59`
 </details>
 
 ## ディレクトリ構成

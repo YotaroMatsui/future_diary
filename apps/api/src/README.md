@@ -1,6 +1,6 @@
 # apps/api/src
 
-`apps/api/src` は Worker API の実装本体を保持し、HTTP route 定義 (`index.ts`)、外部LLM境界（`openaiResponses.ts`）、Vectorize 境界 helper（`vectorize.ts`）と境界テスト (`index.test.ts`) を管理する。
+`apps/api/src` は Worker API の実装本体を保持し、HTTP route 定義 (`index.ts`) に加えて、生成の非同期化（Queue consumer / DO lock）と外部境界（OpenAI / Vectorize）を管理する。
 
 - パス: `apps/api/src/README.md`
 - 状態: Implemented
@@ -27,17 +27,20 @@
 ## 役割
 
 - route 定義と API テストの同居。
+- 生成ジョブ（Queue consumer）とロック（Durable Object）の境界を提供する。
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:75`
-- [E2] `apps/api/src/index.test.ts:156`
+- [E1] `apps/api/src/index.ts:69` — Hono app。
+- [E2] `apps/api/src/index.ts:314` — draft route。
+- [E3] `apps/api/src/index.ts:867` — Queue consumer handler。
+- [E4] `apps/api/src/index.test.ts:1` — endpoint tests。
 </details>
 
 ## スコープ
 
 - 対象（In scope）:
-  - `index.ts`, `openaiResponses.ts`, `vectorize.ts`, `index.test.ts`
+  - `index.ts`, `openaiResponses.ts`, `vectorize.ts`, `generationQueueConsumer.ts`, `draftGenerationLock.ts`, `queue*.ts`, `index.test.ts`
 - 対象外（Non-goals）:
   - wrangler config
 - 委譲（See）:
@@ -74,6 +77,12 @@
 .
 └── apps/api/src/
     ├── index.ts                 # route実装
+    ├── generationQueueConsumer.ts # Queue consumer（生成/埋め込み）
+    ├── queueMessages.ts          # Queue message contract
+    ├── queueProducer.ts          # Queue producer helper
+    ├── draftGenerationLock.ts    # DO lock（同一 user/day 排他）
+    ├── futureDiaryDraftGeneration.ts # draft生成（OpenAI + deterministic）
+    ├── safetyIdentifier.ts       # sha256 helper（ログ用）
     ├── openaiResponses.ts        # OpenAI Responses client（外部LLM境界）
     ├── vectorize.ts             # Vectorize / Workers AI boundary helper
     ├── index.test.ts            # APIテスト
@@ -93,8 +102,10 @@
 
 | 公開シンボル    | 種別         | 定義元     | 目的                 | 根拠                       |
 | --------------- | ------------ | ---------- | -------------------- | -------------------------- |
-| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:46` |
-| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:489` |
+| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:863` |
+| `DraftGenerationLock` | class  | `index.ts` | DO lock export       | `apps/api/src/index.ts:864` |
+| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:866` |
+| `default.queue` | object field | `index.ts` | Queue consumer handler | `apps/api/src/index.ts:867` |
 
 ### 使い方（必須）
 
@@ -124,10 +135,12 @@ const response = await app.request("/health");
 
 ### 契約 SSOT
 
+- `authSessionCreateRequestSchema`
 - `draftRequestSchema`
 - `diaryEntryGetRequestSchema`
 - `diaryEntrySaveRequestSchema`
 - `diaryEntryConfirmRequestSchema`
+- `diaryEntryDeleteRequestSchema`
 - `diaryEntryListRequestSchema`
 
 ### 検証入口（CI / ローカル）
@@ -138,12 +151,12 @@ const response = await app.request("/health");
 
 | テストファイル  | コマンド                      | 検証内容              | 主要 assertion | 根拠                            |
 | --------------- | ----------------------------- | --------------------- | -------------- | ------------------------------- |
-| `index.test.ts` | `bun --cwd apps/api run test` | endpoints smoke test  | status=200     | `apps/api/src/index.test.ts:156` |
+| `index.test.ts` | `bun --cwd apps/api run test` | endpoints smoke test  | status=200     | `apps/api/src/index.test.ts:279` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:157`
-- [E2] `apps/api/src/index.test.ts:166`
+- [E1] `apps/api/src/index.test.ts:278`
+- [E2] `apps/api/src/index.test.ts:279`
 </details>
 
 ## 設計ノート
@@ -170,12 +183,12 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:75`
-- [E2] `apps/api/src/index.ts:115`
-- [E3] `apps/api/src/index.ts:134`
-- [E4] `apps/api/src/index.ts:164`
-- [E5] `apps/api/src/index.ts:214`
-- [E6] `apps/api/src/index.test.ts:156`
+- [E1] `apps/api/src/index.ts:335`
+- [E2] `apps/api/src/index.ts:378`
+- [E3] `apps/api/src/index.ts:397`
+- [E4] `apps/api/src/index.ts:468`
+- [E5] `apps/api/src/index.ts:518`
+- [E6] `apps/api/src/index.test.ts:278`
 </details>
 
 ## 品質
@@ -186,11 +199,11 @@ flowchart TD
 
 | リスク    | 対策（検証入口） | 根拠                           |
 | --------- | ---------------- | ------------------------------ |
-| route回帰 | `index.test.ts`  | `apps/api/src/index.test.ts:156` |
+| route回帰 | `index.test.ts`  | `apps/api/src/index.test.ts:278` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:156`
+- [E1] `apps/api/src/index.test.ts:278`
 </details>
 
 ## 内部
@@ -201,7 +214,7 @@ flowchart TD
 
 | 項目         | 判定 | 理由           | 根拠                       |
 | ------------ | ---- | -------------- | -------------------------- |
-| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界に限定 | `apps/api/src/index.ts:75` |
+| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界に限定 | `apps/api/src/index.ts:335` |
 
 ### [OPEN]
 

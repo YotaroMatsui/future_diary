@@ -1,5 +1,7 @@
 export type DiaryStatus = "draft" | "confirmed";
 
+export type DraftGenerationStatus = "created" | "processing" | "failed" | "completed";
+
 export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
 export interface SourceFragment {
@@ -37,6 +39,8 @@ export interface DiaryEntry {
   userId: string;
   date: string;
   status: DiaryStatus;
+  generationStatus: DraftGenerationStatus;
+  generationError: string | null;
   generatedText: string;
   finalText: string | null;
   createdAt: string;
