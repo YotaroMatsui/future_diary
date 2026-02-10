@@ -17,11 +17,17 @@ export interface StyleHints {
   maxParagraphs: number;
 }
 
+export interface GenerationPreferences {
+  avoidCopyingFromFragments: boolean;
+}
+
 export interface GenerateFutureDiaryInput {
   date: string;
   userTimezone: string;
   recentFragments: readonly SourceFragment[];
   styleHints: StyleHints;
+  draftIntent: string;
+  preferences: GenerationPreferences;
 }
 
 export interface FutureDiaryDraft {

@@ -31,9 +31,9 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:69` — Hono app。
-- [E2] `apps/api/src/index.ts:314` — draft route。
-- [E3] `apps/api/src/index.ts:867` — Queue consumer handler。
+- [E1] `apps/api/src/index.ts:74` — Hono app。
+- [E2] `apps/api/src/index.ts:319` — draft route。
+- [E3] `apps/api/src/index.ts:1018` — Queue consumer handler。
 - [E4] `apps/api/src/index.test.ts:1` — endpoint tests。
 </details>
 
@@ -102,10 +102,10 @@
 
 | 公開シンボル    | 種別         | 定義元     | 目的                 | 根拠                       |
 | --------------- | ------------ | ---------- | -------------------- | -------------------------- |
-| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:863` |
-| `DraftGenerationLock` | class  | `index.ts` | DO lock export       | `apps/api/src/index.ts:864` |
-| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:866` |
-| `default.queue` | object field | `index.ts` | Queue consumer handler | `apps/api/src/index.ts:867` |
+| `app`           | const        | `index.ts` | testable Hono app    | `apps/api/src/index.ts:1014` |
+| `DraftGenerationLock` | class  | `index.ts` | DO lock export       | `apps/api/src/index.ts:1015` |
+| `default.fetch` | object field | `index.ts` | Worker fetch handler | `apps/api/src/index.ts:1017` |
+| `default.queue` | object field | `index.ts` | Queue consumer handler | `apps/api/src/index.ts:1018` |
 
 ### 使い方（必須）
 
@@ -151,12 +151,12 @@ const response = await app.request("/health");
 
 | テストファイル  | コマンド                      | 検証内容              | 主要 assertion | 根拠                            |
 | --------------- | ----------------------------- | --------------------- | -------------- | ------------------------------- |
-| `index.test.ts` | `bun --cwd apps/api run test` | endpoints smoke test  | status=200     | `apps/api/src/index.test.ts:279` |
+| `index.test.ts` | `bun --cwd apps/api run test` | endpoints smoke test  | status=200     | `apps/api/src/index.test.ts:418` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:278`
-- [E2] `apps/api/src/index.test.ts:279`
+- [E1] `apps/api/src/index.test.ts:418`
+- [E2] `apps/api/src/index.test.ts:419`
 </details>
 
 ## 設計ノート
@@ -183,12 +183,12 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.ts:335`
+- [E1] `apps/api/src/index.ts:319`
 - [E2] `apps/api/src/index.ts:378`
-- [E3] `apps/api/src/index.ts:397`
-- [E4] `apps/api/src/index.ts:468`
-- [E5] `apps/api/src/index.ts:518`
-- [E6] `apps/api/src/index.test.ts:278`
+- [E3] `apps/api/src/index.ts:402`
+- [E4] `apps/api/src/index.ts:421`
+- [E5] `apps/api/src/index.ts:1018`
+- [E6] `apps/api/src/index.test.ts:418`
 </details>
 
 ## 品質
@@ -199,11 +199,11 @@ flowchart TD
 
 | リスク    | 対策（検証入口） | 根拠                           |
 | --------- | ---------------- | ------------------------------ |
-| route回帰 | `index.test.ts`  | `apps/api/src/index.test.ts:278` |
+| route回帰 | `index.test.ts`  | `apps/api/src/index.test.ts:418` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/api/src/index.test.ts:278`
+- [E1] `apps/api/src/index.test.ts:418`
 </details>
 
 ## 内部
@@ -214,7 +214,7 @@ flowchart TD
 
 | 項目         | 判定 | 理由           | 根拠                       |
 | ------------ | ---- | -------------- | -------------------------- |
-| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界に限定 | `apps/api/src/index.ts:335` |
+| 副作用の隔離 | YES  | HTTP + D1 + 外部LLM + Vectorize/Workers AI を境界に限定 | `apps/api/src/index.ts:319` |
 
 ### [OPEN]
 

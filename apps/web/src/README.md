@@ -32,7 +32,7 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/main.tsx:12` — mount。
-- [E2] `apps/web/src/App.tsx:700` — draft auto load。
+- [E2] `apps/web/src/App.tsx:807` — draft auto load。
 - [E3] `apps/web/src/api.ts:65` — fetch boundary。
 </details>
 
@@ -57,7 +57,7 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:176`
+- [E1] `apps/web/src/App.tsx:179`
 - [E2] `apps/web/src/api.ts:147`
 - [E3] `apps/web/src/app.css:71`
 </details>
@@ -93,6 +93,7 @@
 - 提供:
   - `App`
   - diary API client（`fetchFutureDiaryDraft` / `saveDiaryEntry` / `confirmDiaryEntry` / `listDiaryEntries` / `deleteDiaryEntry`）
+  - user model client（`fetchUserModel` / `updateUserModel` / `resetUserModel`）
   - auth client（`createAuthSession` / `fetchAuthMe` / `logout` / `deleteUser`）
 - 非提供:
   - shared UI primitives
@@ -101,16 +102,19 @@
 
 | 公開シンボル  | 種別      | 定義元    | 目的           | 根拠                     |
 | ------------- | --------- | --------- | -------------- | ------------------------ |
-| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:176` |
+| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:179` |
 | `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:147` |
 | `createAuthSession`     | function  | `api.ts`  | session 作成 | `apps/web/src/api.ts:162` |
 | `fetchAuthMe`           | function  | `api.ts`  | session 検証 | `apps/web/src/api.ts:173` |
-| `logout`                | function  | `api.ts`  | session 破棄 | `apps/web/src/api.ts:176` |
-| `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:194` |
-| `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:203` |
-| `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:215` |
-| `deleteDiaryEntry`      | function  | `api.ts`  | diary 削除 | `apps/web/src/api.ts:226` |
-| `deleteUser`            | function  | `api.ts`  | user 削除 | `apps/web/src/api.ts:229` |
+| `fetchUserModel`        | function  | `api.ts`  | user model 取得 | `apps/web/src/api.ts:195` |
+| `updateUserModel`       | function  | `api.ts`  | user model 更新 | `apps/web/src/api.ts:203` |
+| `resetUserModel`        | function  | `api.ts`  | user model 初期化 | `apps/web/src/api.ts:211` |
+| `logout`                | function  | `api.ts`  | session 破棄 | `apps/web/src/api.ts:214` |
+| `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:232` |
+| `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:241` |
+| `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:253` |
+| `deleteDiaryEntry`      | function  | `api.ts`  | diary 削除 | `apps/web/src/api.ts:264` |
+| `deleteUser`            | function  | `api.ts`  | user 削除 | `apps/web/src/api.ts:267` |
 
 ### 使い方（必須）
 
@@ -139,6 +143,9 @@ import { App } from "./App";
   - `FutureDiaryDraftResponse`
   - `AuthSessionCreateResponse`
   - `AuthMeResponse`
+  - `UserModelGetResponse`
+  - `UserModelUpdateResponse`
+  - `UserModelResetResponse`
   - `DiaryEntrySaveResponse`
   - `DiaryEntryConfirmResponse`
   - `DiaryEntriesListResponse`
@@ -202,9 +209,9 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:700` — auto load。
+- [E1] `apps/web/src/App.tsx:807` — auto load。
 - [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
-- [E3] `apps/web/src/App.tsx:843` — access key modal（発行直後の表示/コピー導線）。
+- [E3] `apps/web/src/App.tsx:951` — access key modal（発行直後の表示/コピー導線）。
 </details>
 
 ## 品質
@@ -215,9 +222,9 @@ flowchart TD
 
 | リスク            | 対策（検証入口） | 根拠                      |
 | ----------------- | ---------------- | ------------------------- |
-| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:290` |
+| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:497` |
 | timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:61` |
-| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:999` |
+| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:1106` |
 
 <details><summary>根拠（Evidence）</summary>
 

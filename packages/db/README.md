@@ -263,12 +263,13 @@ flowchart TD
 
 - [OPEN][TODO] ユーザーモデル（style/intent/preferences）の永続化と更新（schema + repository）
   - 背景: 下書き生成を「過去日記の要約/焼き直し」から脱却し、モデル主導に寄せる。
-  - 現状: users は `preferences_json` のみ（実質未使用）。
+  - 現状: users の `preferences_json` に user model JSON を保存し、repository に更新APIを追加した（バージョニング/履歴は未対応）。
   - 受入条件:
     - model を保存/取得/更新できる（バージョニング/リセット含む）。
     - 生成に必要な最小データと UI 編集用データを分離できる（機微情報の扱いを明確化）。
   - 根拠:
     - `packages/db/src/migrations/0001_initial.sql:1`
+    - `packages/db/src/repository.ts:343`
 
 ### [ISSUE]
 

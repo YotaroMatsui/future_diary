@@ -187,6 +187,21 @@ const createInMemoryD1 = () => {
             return { success: true };
           }
 
+          if (query.includes("UPDATE users SET preferences_json")) {
+            const [preferencesJson, userId] = bound as [string, string];
+            const existing = users.get(userId);
+
+            if (existing) {
+              users.set(userId, {
+                ...existing,
+                preferences_json: preferencesJson,
+                updated_at: now(),
+              });
+            }
+
+            return { success: true };
+          }
+
           if (
             query.includes("UPDATE diary_entries SET generation_status = 'created'") &&
             query.includes("generation_error = ?")
@@ -571,6 +586,109 @@ describe("future-diary-api", () => {
     expect(json2.draft?.body.length).toBeGreaterThan(0);
     expect(db.__data.revisions.length).toBe(1);
     expect(db.__data.revisions[0]?.kind).toBe("generated");
+  });
+
+  test("GET/POST /v1/user/model returns and updates user model", async () => {
+    const db = createInMemoryD1();
+    const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
+
+    const get1 = await app.request(
+      "/v1/user/model",
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${accessToken}` },
+      },
+      env,
+    );
+    const json1 = (await get1.json()) as { ok: boolean; model?: any; parseError?: any };
+    expect(get1.status).toBe(200);
+    expect(json1.ok).toBe(true);
+    expect(json1.model?.version).toBe(1);
+
+    const update = await app.request(
+      "/v1/user/model",
+      {
+        method: "POST",
+        headers: authJsonHeaders(accessToken),
+        body: JSON.stringify({
+          model: {
+            intent: "落ち着いて始める",
+            styleHints: { maxParagraphs: 3 },
+            preferences: { avoidCopyingFromFragments: false },
+          },
+        }),
+      },
+      env,
+    );
+    const updateJson = (await update.json()) as { ok: boolean; model?: any };
+    expect(update.status).toBe(200);
+    expect(updateJson.ok).toBe(true);
+    expect(updateJson.model?.intent).toBe("落ち着いて始める");
+    expect(updateJson.model?.styleHints?.maxParagraphs).toBe(3);
+    expect(updateJson.model?.preferences?.avoidCopyingFromFragments).toBe(false);
+
+    const get2 = await app.request(
+      "/v1/user/model",
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${accessToken}` },
+      },
+      env,
+    );
+    const json2 = (await get2.json()) as { ok: boolean; model?: any };
+    expect(get2.status).toBe(200);
+    expect(json2.ok).toBe(true);
+    expect(json2.model?.intent).toBe("落ち着いて始める");
+  });
+
+  test("POST /v1/user/model/reset resets model", async () => {
+    const db = createInMemoryD1();
+    const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
+
+    const updated = await app.request(
+      "/v1/user/model",
+      {
+        method: "POST",
+        headers: authJsonHeaders(accessToken),
+        body: JSON.stringify({
+          model: {
+            intent: "test",
+            preferences: { avoidCopyingFromFragments: false },
+          },
+        }),
+      },
+      env,
+    );
+    expect(updated.status).toBe(200);
+
+    const reset = await app.request(
+      "/v1/user/model/reset",
+      {
+        method: "POST",
+        headers: authJsonHeaders(accessToken),
+        body: JSON.stringify({}),
+      },
+      env,
+    );
+    const resetJson = (await reset.json()) as { ok: boolean; model?: any };
+    expect(reset.status).toBe(200);
+    expect(resetJson.ok).toBe(true);
+    expect(resetJson.model?.version).toBe(1);
+
+    const get = await app.request(
+      "/v1/user/model",
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${accessToken}` },
+      },
+      env,
+    );
+    const json = (await get.json()) as { ok: boolean; model?: any };
+    expect(get.status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(json.model?.intent).toBe("");
   });
 
   test("POST /v1/diary/entry/delete deletes an entry", async () => {

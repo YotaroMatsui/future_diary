@@ -6,6 +6,8 @@ describe("buildFutureDiaryDraft", () => {
     const result = buildFutureDiaryDraft({
       date: "2026-02-07",
       userTimezone: "Asia/Tokyo",
+      draftIntent: "",
+      preferences: { avoidCopyingFromFragments: true },
       styleHints: {
         openingPhrases: ["朝の段階で、今日は落ち着いて進める気配がある。"],
         closingPhrases: ["夜には事実ベースで追記して確定する。"],
@@ -29,6 +31,8 @@ describe("buildFutureDiaryDraft", () => {
     const result = buildFutureDiaryDraft({
       date: "2026-02-07",
       userTimezone: "Asia/Tokyo",
+      draftIntent: "",
+      preferences: { avoidCopyingFromFragments: true },
       styleHints: {
         openingPhrases: [],
         closingPhrases: [],
@@ -51,6 +55,7 @@ describe("buildFallbackFutureDiaryDraft", () => {
   test("returns editable draft even when no source exists", () => {
     const draft = buildFallbackFutureDiaryDraft({
       date: "2026-02-07",
+      draftIntent: "",
       styleHints: {
         openingPhrases: [],
         closingPhrases: [],
@@ -60,6 +65,6 @@ describe("buildFallbackFutureDiaryDraft", () => {
 
     expect(draft.title).toBe("2026-02-07 の未来日記");
     expect(draft.sourceFragmentIds).toEqual([]);
-    expect(draft.body).toContain("（ここに今日の出来事を追記する）");
+    expect(draft.body).toContain("（ここに、今日の予定・やりたいこと・気づきを追記する）");
   });
 });

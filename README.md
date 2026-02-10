@@ -249,10 +249,6 @@ flowchart TD
   - See: `packages/db/README.md`
   - See: `apps/api/README.md`
   - See: `docs/requirements-ssot.md`
-- [ISSUE][P1] ユーザーモデルをユーザが確認・編集できる UI/設定画面と API を追加する（編集内容が生成に反映される）
-  - See: `apps/web/README.md`
-  - See: `apps/api/README.md`
-  - See: `docs/requirements-ssot.md`
 - [ISSUE][P1] 生成の透明性: `sourceFragmentIds` の永続化/返却に加え、生成時に利用した「モデルの内容/バージョン」「参照断片（style用/内容用）」を説明可能にする
   - See: `apps/api/README.md`
   - See: `apps/web/README.md`
@@ -278,6 +274,7 @@ flowchart TD
 - `feat/async-generation-orchestration` で Queues + DO lock による生成の非同期化と polling 契約を実装した。
 - `docs/prod-deploy-runbook` で本番デプロイ runbook（Workers/Pages/D1/Vectorize）を `infra/prod-deploy-runbook.md` に集約した。
 - web のサインイン導線を再設計し、初回 access key 発行後に必ず表示/コピーできるようにした。
+- user model（style/intent/preferences）の取得/更新/初期化 API と、Profile 編集 UI を追加し、生成に反映できるようにした。
 - `make dev-api` 実行時に local D1 migrations を自動適用し、起動直後の `no such table` を防いだ。
 
 </details>

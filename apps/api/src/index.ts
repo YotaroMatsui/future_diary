@@ -4,6 +4,7 @@ import {
   createDiaryRevisionRepository,
   createUserRepository,
 } from "@future-diary/db";
+import { defaultUserModel, parseUserModelInput, parseUserModelJson, serializeUserModelJson } from "@future-diary/core";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
@@ -45,6 +46,10 @@ const diaryEntryDeleteRequestSchema = z.object({
 
 const authSessionCreateRequestSchema = z.object({
   timezone: z.string().min(1).default("Asia/Tokyo"),
+});
+
+const userModelUpdateRequestSchema = z.object({
+  model: z.unknown(),
 });
 
 type WorkerBindings = {
@@ -353,6 +358,17 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
   const diaryRevisionRepo = createDiaryRevisionRepository(db);
 
   await userRepo.upsertUser({ id: userId, timezone });
+  const user = await userRepo.findById(userId);
+  const parsedModel = parseUserModelJson(user?.preferencesJson);
+  const userModel = parsedModel.ok ? parsedModel.value : defaultUserModel;
+
+  if (!parsedModel.ok) {
+    console.warn("User model parse failed; falling back to default", {
+      safetyIdentifier,
+      errorType: parsedModel.error.type,
+      message: parsedModel.error.message,
+    });
+  }
 
   let entry = await diaryRepo.findByUserAndDate(userId, date);
   const existedBefore = entry !== null;
@@ -405,6 +421,7 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
           const generated = await generateFutureDiaryDraft({
             env: context.env,
             diaryRepo,
+            userModel,
             userId,
             date,
             timezone,
@@ -480,6 +497,140 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
       pollAfterMs: entry.generationStatus === "completed" ? 0 : 1500,
     },
   });
+});
+
+app.get("/v1/user/model", requireAuth, async (context) => {
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const db = context.env.DB;
+  const auth = context.get("auth") as AuthContext;
+
+  const userRepo = createUserRepository(db);
+  const user = await userRepo.findById(auth.userId);
+
+  if (!user) {
+    return context.json(
+      {
+        ok: false,
+        error: { type: "UNAUTHORIZED", message: "User was not found" },
+      },
+      401,
+    );
+  }
+
+  const parsed = parseUserModelJson(user.preferencesJson);
+
+  return context.json({
+    ok: true,
+    model: parsed.ok ? parsed.value : defaultUserModel,
+    parseError: parsed.ok ? null : parsed.error,
+  });
+});
+
+app.post("/v1/user/model", requireAuth, async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = userModelUpdateRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const auth = context.get("auth") as AuthContext;
+  const userModel = parseUserModelInput(parsed.data.model);
+  if (!userModel.ok) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: userModel.error.type,
+          message: userModel.error.message,
+        },
+      },
+      400,
+    );
+  }
+
+  const userRepo = createUserRepository(context.env.DB);
+  const updated = await userRepo.setPreferencesJson(auth.userId, serializeUserModelJson(userModel.value));
+
+  if (!updated) {
+    return context.json(
+      {
+        ok: false,
+        error: { type: "UNAUTHORIZED", message: "User was not found" },
+      },
+      401,
+    );
+  }
+
+  return context.json({
+    ok: true,
+    model: userModel.value,
+  });
+});
+
+app.post("/v1/user/model/reset", requireAuth, async (context) => {
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const auth = context.get("auth") as AuthContext;
+  const userRepo = createUserRepository(context.env.DB);
+  const updated = await userRepo.setPreferencesJson(auth.userId, "{}");
+
+  if (!updated) {
+    return context.json(
+      {
+        ok: false,
+        error: { type: "UNAUTHORIZED", message: "User was not found" },
+      },
+      401,
+    );
+  }
+
+  return context.json({ ok: true, model: defaultUserModel });
 });
 
 app.post("/v1/diary/entry/get", requireAuth, async (context) => {

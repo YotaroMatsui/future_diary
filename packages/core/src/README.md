@@ -30,15 +30,16 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/core/src/futureDiary.ts:20`
+- [E1] `packages/core/src/futureDiary.ts:98`
 - [E2] `packages/core/src/types.ts:1`
 - [E3] `packages/core/src/futureDiaryLlm.ts:20`
+- [E4] `packages/core/src/userModel.ts:22`
 </details>
 
 ## スコープ
 
 - 対象（In scope）:
-  - `futureDiary.ts`, `futureDiaryLlm.ts`, `types.ts`, `index.ts`
+  - `futureDiary.ts`, `futureDiaryLlm.ts`, `userModel.ts`, `types.ts`, `index.ts`
 - 対象外（Non-goals）:
   - DB/HTTP
 - 委譲（See）:
@@ -78,6 +79,8 @@
     ├── futureDiary.test.ts      # usecase tests
     ├── futureDiaryLlm.ts        # LLM prompt/schema (pure)
     ├── futureDiaryLlm.test.ts   # prompt/schema tests
+    ├── userModel.ts             # user model parse/defaults (pure)
+    ├── userModel.test.ts        # user model tests
     ├── index.ts                 # exports
     └── README.md                # この文書
 ```
@@ -92,6 +95,10 @@
   - `buildFutureDiaryDraftLlmSystemPrompt`
   - `buildFutureDiaryDraftLlmUserPrompt`
   - `futureDiaryDraftBodyJsonSchema`
+  - `defaultUserModel`
+  - `parseUserModelJson`
+  - `parseUserModelInput`
+  - `serializeUserModelJson`
   - `Result` など型
 - 非提供:
   - IO API
@@ -100,11 +107,13 @@
 
 | 公開シンボル            | 種別     | 定義元           | 目的      | 根拠                                  |
 | ----------------------- | -------- | ---------------- | --------- | ------------------------------------- |
-| `buildFutureDiaryDraft` | function | `futureDiary.ts` | draft生成 | `packages/core/src/futureDiary.ts:20` |
-| `buildFallbackFutureDiaryDraft` | function | `futureDiary.ts` | fallback | `packages/core/src/futureDiary.ts:63` |
+| `buildFutureDiaryDraft` | function | `futureDiary.ts` | draft生成 | `packages/core/src/futureDiary.ts:98` |
+| `buildFallbackFutureDiaryDraft` | function | `futureDiary.ts` | fallback | `packages/core/src/futureDiary.ts:153` |
 | `buildFutureDiaryDraftLlmSystemPrompt` | function | `futureDiaryLlm.ts` | LLM prompt | `packages/core/src/futureDiaryLlm.ts:20` |
-| `buildFutureDiaryDraftLlmUserPrompt` | function | `futureDiaryLlm.ts` | LLM prompt | `packages/core/src/futureDiaryLlm.ts:33` |
+| `buildFutureDiaryDraftLlmUserPrompt` | function | `futureDiaryLlm.ts` | LLM prompt | `packages/core/src/futureDiaryLlm.ts:35` |
 | `futureDiaryDraftBodyJsonSchema` | const | `futureDiaryLlm.ts` | schema | `packages/core/src/futureDiaryLlm.ts:7` |
+| `defaultUserModel`      | const    | `userModel.ts`   | user model default | `packages/core/src/userModel.ts:22` |
+| `parseUserModelJson`    | function | `userModel.ts`   | preferences_json parse | `packages/core/src/userModel.ts:164` |
 
 ### 使い方（必須）
 
@@ -138,8 +147,9 @@ import { buildFutureDiaryDraft } from "./futureDiary";
 
 | テストファイル        | コマンド                           | 検証内容      | 主要 assertion  | 根拠                                       |
 | --------------------- | ---------------------------------- | ------------- | --------------- | ------------------------------------------ |
-| `futureDiary.test.ts` | `bun --cwd packages/core run test` | success/error | expected result | `packages/core/src/futureDiary.test.ts:40` |
-| `futureDiaryLlm.test.ts` | `bun --cwd packages/core run test` | prompt/schema | contains input | `packages/core/src/futureDiaryLlm.test.ts:17` |
+| `futureDiary.test.ts` | `bun --cwd packages/core run test` | success/error | expected result | `packages/core/src/futureDiary.test.ts:5` |
+| `futureDiaryLlm.test.ts` | `bun --cwd packages/core run test` | prompt/schema | contains input | `packages/core/src/futureDiaryLlm.test.ts:15` |
+| `userModel.test.ts`   | `bun --cwd packages/core run test` | model parse/normalize | default/roundtrip | `packages/core/src/userModel.test.ts:1` |
 
 <details><summary>根拠（Evidence）</summary>
 
@@ -196,17 +206,18 @@ flowchart TD
 
 | 項目   | 判定 | 理由              | 根拠                                  |
 | ------ | ---- | ----------------- | ------------------------------------- |
-| 純粋性 | YES  | external I/O なし | `packages/core/src/futureDiary.ts:20` |
+| 純粋性 | YES  | external I/O なし | `packages/core/src/futureDiary.ts:98` |
 
 ### [OPEN]
 
 - [OPEN][TODO] algorithm拡張
-  - 背景: 現在は単純整形
-  - 現状: paragraph変換のみ
+  - 背景: 生成品質の継続改善（要約/焼き直しの抑制、意図/スタイルの反映強化）。
+  - 現状: user model + キーワード抽出 + placeholder scaffold の組み立て。
   - 受入条件:
     - style features追加
   - 根拠:
-    - `packages/core/src/futureDiary.ts:12`
+    - `packages/core/src/userModel.ts:22`
+    - `packages/core/src/futureDiary.ts:81`
 
 ### [ISSUE]
 

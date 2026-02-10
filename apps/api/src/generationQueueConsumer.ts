@@ -1,4 +1,5 @@
 import { createDiaryRepository, createDiaryRevisionRepository, createUserRepository } from "@future-diary/db";
+import { defaultUserModel, parseUserModelJson } from "@future-diary/core";
 import { upsertVectorizeSearchDocumentsWithWorkersAi } from "@future-diary/vector";
 import { acquireDraftGenerationLock, releaseDraftGenerationLock } from "./draftGenerationLock";
 import { generateFutureDiaryDraft } from "./futureDiaryDraftGeneration";
@@ -71,6 +72,17 @@ const processFutureDraftGenerate = async (params: {
   const safetyIdentifier = await sha256Hex(userId);
 
   await userRepo.upsertUser({ id: userId, timezone });
+  const user = await userRepo.findById(userId);
+  const parsedModel = parseUserModelJson(user?.preferencesJson);
+  const userModel = parsedModel.ok ? parsedModel.value : defaultUserModel;
+
+  if (!parsedModel.ok) {
+    console.warn("User model parse failed; falling back to default", {
+      safetyIdentifier,
+      errorType: parsedModel.error.type,
+      message: parsedModel.error.message,
+    });
+  }
 
   // Ensure an entry row exists so the API can poll status.
   await diaryRepo.createDraftGenerationPlaceholderIfMissing({ id: crypto.randomUUID(), userId, date });
@@ -112,6 +124,7 @@ const processFutureDraftGenerate = async (params: {
     const generated = await generateFutureDiaryDraft({
       env,
       diaryRepo,
+      userModel,
       userId,
       date,
       timezone,
