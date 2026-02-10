@@ -4,6 +4,7 @@ import {
   buildFutureDiaryDraftLlmSystemPrompt,
   buildFutureDiaryDraftLlmUserPrompt,
   futureDiaryDraftBodyJsonSchema,
+  type UserModelV1,
 } from "@future-diary/core";
 import type { DiaryRepository } from "@future-diary/db";
 import { createWorkersAiVectorizeSearchPort, searchRelevantFragments } from "@future-diary/vector";
@@ -37,12 +38,6 @@ export type GeneratedDraft = {
   sourceEntriesToIndex: readonly { id: string; date: string; text: string }[];
 };
 
-const defaultStyleHints = {
-  openingPhrases: ["今日は無理をせず、少しずつ整えていく一日にしたい。"],
-  closingPhrases: ["夜に事実を追記して、確定日記にする。"],
-  maxParagraphs: 2,
-} as const;
-
 const futureDiaryDraftBodySchema = z.object({
   body: z.string().trim().min(1),
 });
@@ -53,6 +48,7 @@ const truncateForPrompt = (text: string, maxChars: number): string =>
 export const generateFutureDiaryDraft = async (params: {
   env: DraftGenerationEnv;
   diaryRepo: DiaryRepository;
+  userModel: UserModelV1;
   userId: string;
   date: string;
   timezone: string;
@@ -62,6 +58,9 @@ export const generateFutureDiaryDraft = async (params: {
   const date = params.date;
   const timezone = params.timezone;
   const diaryRepo = params.diaryRepo;
+  const draftIntent = params.userModel.intent;
+  const styleHints = params.userModel.styleHints;
+  const preferences = params.userModel.preferences;
 
   const sourceEntries = await diaryRepo.listRecentByUserBeforeDate(userId, date, 20);
   const sourceEntriesToIndex = sourceEntries.slice(0, 5).map((entry) => ({
@@ -125,7 +124,9 @@ export const generateFutureDiaryDraft = async (params: {
       date,
       userTimezone: timezone,
       recentFragments: llmFragments,
-      styleHints: defaultStyleHints,
+      styleHints,
+      draftIntent,
+      preferences,
     });
 
     const llmResult = await requestOpenAiStructuredOutputText({
@@ -182,7 +183,9 @@ export const generateFutureDiaryDraft = async (params: {
       date,
       userTimezone: timezone,
       recentFragments,
-      styleHints: defaultStyleHints,
+      styleHints,
+      draftIntent,
+      preferences,
     });
 
     if (draftResult.ok) {
@@ -190,7 +193,7 @@ export const generateFutureDiaryDraft = async (params: {
       draft = draftResult.value;
     } else if (draftResult.error.type === "NO_SOURCE") {
       source = "fallback";
-      draft = buildFallbackFutureDiaryDraft({ date, styleHints: defaultStyleHints });
+      draft = buildFallbackFutureDiaryDraft({ date, styleHints, draftIntent });
     } else {
       // invalid style hints etc: treat as unexpected but expose as error to retry.
       throw new Error(draftResult.error.message);
@@ -203,4 +206,3 @@ export const generateFutureDiaryDraft = async (params: {
     sourceEntriesToIndex,
   };
 };
-

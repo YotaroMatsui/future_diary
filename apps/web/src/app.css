@@ -258,6 +258,19 @@ body::before {
   align-items: center;
 }
 
+.checkboxLine {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.checkboxLine input {
+  margin-top: 2px;
+}
+
 .input:focus {
   border-color: rgba(15, 118, 110, 0.55);
   box-shadow: 0 0 0 4px var(--focus);

@@ -1,6 +1,6 @@
 import { diaryStatusLabel } from "@future-diary/ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DiaryEntryWithBody, DiaryStatus, DraftGenerationStatus, FutureDiaryDraftResponse } from "./api";
+import type { DiaryEntryWithBody, DiaryStatus, DraftGenerationStatus, FutureDiaryDraftResponse, UserModel } from "./api";
 import {
   confirmDiaryEntry,
   createAuthSession,
@@ -8,9 +8,12 @@ import {
   deleteUser,
   fetchAuthMe,
   fetchFutureDiaryDraft,
+  fetchUserModel,
   listDiaryEntries,
   logout,
+  resetUserModel,
   saveDiaryEntry,
+  updateUserModel,
 } from "./api";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
@@ -189,6 +192,13 @@ export const App = () => {
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
+  const [userModel, setUserModel] = useState<UserModel | null>(null);
+  const [userModelDraft, setUserModelDraft] = useState<UserModel | null>(null);
+  const [userModelDirty, setUserModelDirty] = useState(false);
+  const [userModelLoading, setUserModelLoading] = useState(false);
+  const [userModelSaving, setUserModelSaving] = useState(false);
+  const [userModelResetting, setUserModelResetting] = useState(false);
+
   const [autoLoadPending, setAutoLoadPending] = useState(true);
 
   const [entryId, setEntryId] = useState<string | null>(null);
@@ -241,6 +251,9 @@ export const App = () => {
     draftRequestSeq.current += 1;
     resetEntryState();
     setHistory([]);
+    setUserModel(null);
+    setUserModelDraft(null);
+    setUserModelDirty(false);
     setAutoLoadPending(true);
   }, [accessTokenTrim, resetEntryState]);
 
@@ -270,6 +283,100 @@ export const App = () => {
       }
     })();
   }, [accessTokenTrim, authUser]);
+
+  const refreshUserModel = useCallback(async (): Promise<void> => {
+    if (accessTokenTrim.length === 0) {
+      setUserModel(null);
+      setUserModelDraft(null);
+      setUserModelDirty(false);
+      return;
+    }
+
+    setUserModelLoading(true);
+    try {
+      const response = await fetchUserModel(apiBaseUrl, accessTokenTrim);
+      setUserModel(response.model);
+      setUserModelDraft(response.model);
+      setUserModelDirty(false);
+
+      if (response.parseError) {
+        setToast({
+          kind: "error",
+          message: `ユーザーモデルの読み込みに失敗しました（デフォルトを使用します）: ${response.parseError.type}: ${response.parseError.message}`,
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
+      setToast({ kind: "error", message: `ユーザーモデルの取得に失敗しました: ${errorMessage}` });
+    } finally {
+      setUserModelLoading(false);
+    }
+  }, [accessTokenTrim]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    if (userModel !== null) {
+      return;
+    }
+
+    void refreshUserModel();
+  }, [isAuthenticated, refreshUserModel, userModel]);
+
+  const onSaveUserModel = useCallback(async (): Promise<void> => {
+    if (!isAuthenticated || accessTokenTrim.length === 0) {
+      setToast({ kind: "error", message: "ログインしてください。" });
+      return;
+    }
+
+    if (!userModelDraft) {
+      return;
+    }
+
+    setUserModelSaving(true);
+    setToast({ kind: "info", message: "ユーザーモデルを保存しています..." });
+    try {
+      const response = await updateUserModel(apiBaseUrl, accessTokenTrim, userModelDraft);
+      setUserModel(response.model);
+      setUserModelDraft(response.model);
+      setUserModelDirty(false);
+      setToast({ kind: "info", message: "ユーザーモデルを保存しました。" });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
+      setToast({ kind: "error", message: `ユーザーモデルの保存に失敗しました: ${errorMessage}` });
+    } finally {
+      setUserModelSaving(false);
+    }
+  }, [accessTokenTrim, isAuthenticated, userModelDraft]);
+
+  const onResetUserModel = useCallback(async (): Promise<void> => {
+    if (!isAuthenticated || accessTokenTrim.length === 0) {
+      setToast({ kind: "error", message: "ログインしてください。" });
+      return;
+    }
+
+    const confirmed = window.confirm("ユーザーモデルを初期化します。よろしいですか？");
+    if (!confirmed) {
+      return;
+    }
+
+    setUserModelResetting(true);
+    setToast({ kind: "info", message: "ユーザーモデルを初期化しています..." });
+    try {
+      const response = await resetUserModel(apiBaseUrl, accessTokenTrim);
+      setUserModel(response.model);
+      setUserModelDraft(response.model);
+      setUserModelDirty(false);
+      setToast({ kind: "info", message: "ユーザーモデルを初期化しました。" });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
+      setToast({ kind: "error", message: `ユーザーモデルの初期化に失敗しました: ${errorMessage}` });
+    } finally {
+      setUserModelResetting(false);
+    }
+  }, [accessTokenTrim, isAuthenticated]);
 
   const refreshHistory = useCallback(
     async (opts?: { onOrBeforeDate?: string }): Promise<void> => {
@@ -1085,6 +1192,170 @@ export const App = () => {
                 </button>
               </div>
             </label>
+
+            <details className="details">
+              <summary>Profile (style/intent)</summary>
+              <p className="hint">
+                下書き生成に使うユーザーモデルです。ここで編集した内容は次回以降の生成に反映されます。
+              </p>
+
+              {userModelLoading ? <p className="hint">loading...</p> : null}
+
+              {!userModelDraft ? (
+                <p className="hint">未読み込みです。</p>
+              ) : (
+                <>
+                  <label className="field">
+                    <span className="field__label">intent</span>
+                    <textarea
+                      className="textarea"
+                      rows={3}
+                      value={userModelDraft.intent}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setUserModelDraft((prev) => (prev ? { ...prev, intent: value } : prev));
+                        setUserModelDirty(true);
+                      }}
+                      placeholder="例: 落ち着いて始めたい / 今日は優先度を見直したい"
+                      spellCheck={false}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span className="field__label">opening phrase</span>
+                    <input
+                      className="input"
+                      value={userModelDraft.styleHints.openingPhrases[0] ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setUserModelDraft((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                styleHints: {
+                                  ...prev.styleHints,
+                                  openingPhrases: [value],
+                                },
+                              }
+                            : prev,
+                        );
+                        setUserModelDirty(true);
+                      }}
+                      placeholder="例: 今日は無理をせず、少しずつ整えていく一日にしたい。"
+                      autoComplete="off"
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span className="field__label">closing phrase</span>
+                    <input
+                      className="input"
+                      value={userModelDraft.styleHints.closingPhrases[0] ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setUserModelDraft((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                styleHints: {
+                                  ...prev.styleHints,
+                                  closingPhrases: [value],
+                                },
+                              }
+                            : prev,
+                        );
+                        setUserModelDirty(true);
+                      }}
+                      placeholder="例: 夜に事実を追記して、確定日記にする。"
+                      autoComplete="off"
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span className="field__label">max paragraphs</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={6}
+                      value={userModelDraft.styleHints.maxParagraphs}
+                      onChange={(event) => {
+                        const next = Number(event.target.value);
+                        if (!Number.isFinite(next)) {
+                          return;
+                        }
+                        setUserModelDraft((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                styleHints: {
+                                  ...prev.styleHints,
+                                  maxParagraphs: Math.max(1, Math.min(6, Math.trunc(next))),
+                                },
+                              }
+                            : prev,
+                        );
+                        setUserModelDirty(true);
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span className="field__label">avoid copying</span>
+                    <div className="checkboxLine">
+                      <input
+                        type="checkbox"
+                        checked={userModelDraft.preferences.avoidCopyingFromFragments}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setUserModelDraft((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  preferences: { ...prev.preferences, avoidCopyingFromFragments: checked },
+                                }
+                              : prev,
+                          );
+                          setUserModelDirty(true);
+                        }}
+                      />
+                      <span>過去断片の文章を引用/要約せず、今日の下書きを新規に書く。</span>
+                    </div>
+                  </label>
+
+                  <div className="actions">
+                    <button
+                      className="button"
+                      onClick={() => void onSaveUserModel()}
+                      type="button"
+                      disabled={!isAuthenticated || !userModelDirty || userModelSaving || userModelResetting}
+                    >
+                      {userModelSaving ? "保存中..." : "保存"}
+                    </button>
+                    <button
+                      className="button button--ghost"
+                      onClick={() => void refreshUserModel()}
+                      type="button"
+                      disabled={!isAuthenticated || userModelLoading || userModelSaving || userModelResetting}
+                    >
+                      再読み込み
+                    </button>
+                    <button
+                      className="button button--secondary"
+                      onClick={() => void onResetUserModel()}
+                      type="button"
+                      disabled={!isAuthenticated || userModelSaving || userModelResetting}
+                    >
+                      {userModelResetting ? "初期化中..." : "初期化"}
+                    </button>
+                  </div>
+
+                  <p className="hint">
+                    現在のモデルはローカルではなく API 側に保存されます。保存したくない場合はログアウトしてください。
+                  </p>
+                </>
+              )}
+            </details>
 
             <div className="actions">
               <button className="button button--secondary" onClick={() => void onCopyAccessKey()} type="button" disabled={accessTokenTrim.length === 0}>

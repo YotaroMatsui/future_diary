@@ -315,6 +315,7 @@ export const createDiaryRevisionRepository = (db: D1DatabaseLike): DiaryRevision
 export interface UserRepository {
   upsertUser(user: { id: string; timezone: string }): Promise<void>;
   findById(userId: string): Promise<User | null>;
+  setPreferencesJson(userId: string, preferencesJson: string): Promise<User | null>;
   deleteUser(userId: string): Promise<boolean>;
 }
 
@@ -339,6 +340,20 @@ export const createUserRepository = (db: D1DatabaseLike): UserRepository => {
     return row === null ? null : toUser(row);
   };
 
+  const setPreferencesJson = async (userId: string, preferencesJson: string): Promise<User | null> => {
+    const existing = await findById(userId);
+    if (existing === null) {
+      return null;
+    }
+
+    await db
+      .prepare("UPDATE users SET preferences_json = ?, updated_at = datetime('now') WHERE id = ?")
+      .bind(preferencesJson, userId)
+      .run();
+
+    return await findById(userId);
+  };
+
   const deleteUser = async (userId: string): Promise<boolean> => {
     const existing = await findById(userId);
     if (existing === null) {
@@ -352,6 +367,7 @@ export const createUserRepository = (db: D1DatabaseLike): UserRepository => {
   return {
     upsertUser,
     findById,
+    setPreferencesJson,
     deleteUser,
   };
 };

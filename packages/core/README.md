@@ -31,24 +31,25 @@
 - ドメイン型（`types.ts`）を定義する。
 - ドラフト生成usecase（`buildFutureDiaryDraft`）を提供する。
 - 外部LLM向け prompt と schema（`buildFutureDiaryDraftLlm*`, `futureDiaryDraftBodyJsonSchema`）を提供する。
+- ユーザーモデル（style/intent/preferences）のデフォルトと parse/serialize（pure）を提供する。
 - 期待失敗を `Result` の `ok=false` で返す。
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/core/src/types.ts:5` — `Result` 型。
-- [E2] `packages/core/src/futureDiary.ts:20` — usecase 定義。
-- [E3] `packages/core/src/futureDiary.ts:23` — invalid style error。
-- [E4] `packages/core/src/futureDiary.ts:38` — no source error。
+- [E2] `packages/core/src/futureDiary.ts:98` — usecase 定義。
+- [E3] `packages/core/src/futureDiary.ts:105` — invalid style error。
+- [E4] `packages/core/src/futureDiary.ts:120` — no source error。
 - [E5] `packages/core/src/futureDiaryLlm.ts:20` — system prompt。
-- [E6] `packages/core/src/futureDiaryLlm.ts:33` — user prompt。
+- [E6] `packages/core/src/futureDiaryLlm.ts:35` — user prompt。
 - [E7] `packages/core/src/futureDiaryLlm.ts:7` — structured output schema。
-- [E8] `packages/core/src/futureDiary.ts:51` — `toParagraph` call。
-- [E9] `packages/core/src/futureDiary.ts:12` — `toParagraph` def。
+- [E8] `packages/core/src/userModel.ts:22` — `defaultUserModel`。
+- [E9] `packages/core/src/userModel.ts:164` — `parseUserModelJson`。
 
 - Edge Evidence Map（各エッジは “call + def” の 2 点セット）:
-  - `buildFutureDiaryDraft` -> `toParagraph`:
-    - call: [E8] `packages/core/src/futureDiary.ts:51`
-    - def: [E9] `packages/core/src/futureDiary.ts:12`
+  - `buildFutureDiaryDraft` -> `deriveKeywords`:
+    - call: `packages/core/src/futureDiary.ts:134`
+    - def: `packages/core/src/futureDiary.ts:81`
 
 </details>
 
@@ -74,7 +75,7 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/core/src/futureDiary.ts:1` — types import only。
-- [E2] `packages/core/src/futureDiary.ts:53` — data return。
+- [E2] `packages/core/src/futureDiary.ts:144` — data return。
 </details>
 
 ## ローカル開発
@@ -109,6 +110,10 @@
   - `buildFutureDiaryDraftLlmSystemPrompt`
   - `buildFutureDiaryDraftLlmUserPrompt`
   - `futureDiaryDraftBodyJsonSchema`
+  - `defaultUserModel`
+  - `parseUserModelJson`
+  - `parseUserModelInput`
+  - `serializeUserModelJson`
   - domain type definitions
 - 非提供:
   - persistence/networking
@@ -117,14 +122,16 @@
 
 | 公開シンボル            | 種別      | 定義元               | 目的        | 根拠                                  |
 | ----------------------- | --------- | -------------------- | ----------- | ------------------------------------- |
-| `buildFutureDiaryDraft` | function  | `src/futureDiary.ts` | draft生成   | `packages/core/src/futureDiary.ts:20` |
-| `buildFallbackFutureDiaryDraft` | function | `src/futureDiary.ts` | source無しのfallback | `packages/core/src/futureDiary.ts:63` |
+| `buildFutureDiaryDraft` | function  | `src/futureDiary.ts` | draft生成   | `packages/core/src/futureDiary.ts:98` |
+| `buildFallbackFutureDiaryDraft` | function | `src/futureDiary.ts` | source無しのfallback | `packages/core/src/futureDiary.ts:153` |
 | `buildFutureDiaryDraftLlmSystemPrompt` | function | `src/futureDiaryLlm.ts` | LLM system prompt | `packages/core/src/futureDiaryLlm.ts:20` |
-| `buildFutureDiaryDraftLlmUserPrompt` | function | `src/futureDiaryLlm.ts` | LLM user prompt | `packages/core/src/futureDiaryLlm.ts:33` |
+| `buildFutureDiaryDraftLlmUserPrompt` | function | `src/futureDiaryLlm.ts` | LLM user prompt | `packages/core/src/futureDiaryLlm.ts:35` |
 | `futureDiaryDraftBodyJsonSchema` | const | `src/futureDiaryLlm.ts` | structured output schema | `packages/core/src/futureDiaryLlm.ts:7` |
+| `defaultUserModel`      | const     | `src/userModel.ts`   | user model default | `packages/core/src/userModel.ts:22` |
+| `parseUserModelJson`    | function  | `src/userModel.ts`   | preferences_json parse | `packages/core/src/userModel.ts:164` |
 | `DraftGenerationStatus` | type      | `src/types.ts`       | 生成状態    | `packages/core/src/types.ts:3`        |
 | `Result`                | type      | `src/types.ts`       | 失敗表現    | `packages/core/src/types.ts:5`        |
-| `DiaryEntry`            | interface | `src/types.ts`       | diaryモデル | `packages/core/src/types.ts:37`       |
+| `DiaryEntry`            | interface | `src/types.ts`       | diaryモデル | `packages/core/src/types.ts:43`       |
 
 ### 使い方（必須）
 
@@ -134,6 +141,8 @@ import { buildFutureDiaryDraft } from "@future-diary/core";
 const result = buildFutureDiaryDraft({
   date: "2026-02-07",
   userTimezone: "Asia/Tokyo",
+  draftIntent: "落ち着いて始める",
+  preferences: { avoidCopyingFromFragments: true },
   recentFragments: [{ id: "f1", date: "2026-02-06", relevance: 0.9, text: "朝に散歩した。" }],
   styleHints: { openingPhrases: [], closingPhrases: [], maxParagraphs: 2 },
 });
@@ -195,15 +204,15 @@ const result = buildFutureDiaryDraft({
 ```mermaid
 flowchart TD
   EP["packages/core/src/futureDiary.ts::buildFutureDiaryDraft"] -->|"call"| NP["normalizeLine"]
-  EP -->|"call"| TP["toParagraph"]
+  EP -->|"call"| KW["deriveKeywords"]
   EP -->|"contract"| RS["Result<FutureDiaryDraft, GenerateFutureDiaryError>"]
 ```
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `packages/core/src/futureDiary.ts:10`
-- [E2] `packages/core/src/futureDiary.ts:12`
-- [E3] `packages/core/src/futureDiary.ts:20`
+- [E2] `packages/core/src/futureDiary.ts:81`
+- [E3] `packages/core/src/futureDiary.ts:98`
 </details>
 
 ## 品質
@@ -214,14 +223,14 @@ flowchart TD
 
 | リスク           | 対策（検証入口）             | 根拠                                  |
 | ---------------- | ---------------------------- | ------------------------------------- |
-| 空入力で壊れる   | `NO_SOURCE` を返す           | `packages/core/src/futureDiary.ts:38` |
-| styleHints誤設定 | `INVALID_STYLE_HINTS` を返す | `packages/core/src/futureDiary.ts:23` |
-| 非決定的出力     | sort + slice で決定化        | `packages/core/src/futureDiary.ts:35` |
+| 空入力で壊れる   | `NO_SOURCE` を返す           | `packages/core/src/futureDiary.ts:120` |
+| styleHints誤設定 | `INVALID_STYLE_HINTS` を返す | `packages/core/src/futureDiary.ts:105` |
+| 非決定的出力     | sort + slice で決定化        | `packages/core/src/futureDiary.ts:113` |
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `packages/core/src/futureDiary.ts:33`
-- [E2] `packages/core/src/futureDiary.test.ts:40`
+- [E1] `packages/core/src/futureDiary.ts:120`
+- [E2] `packages/core/src/futureDiary.test.ts:30`
 </details>
 
 ## 内部
@@ -233,24 +242,25 @@ flowchart TD
 
 | 項目       | 判定 | 理由                     | 根拠                                  |
 | ---------- | ---- | ------------------------ | ------------------------------------- |
-| 参照透過性 | YES  | 同一入力で同一出力       | `packages/core/src/futureDiary.ts:20` |
+| 参照透過性 | YES  | 同一入力で同一出力       | `packages/core/src/futureDiary.ts:98` |
 | 純粋性     | YES  | 外部I/Oなし              | `packages/core/src/futureDiary.ts:1`  |
-| 不変性     | YES  | `[...]` でコピーして操作 | `packages/core/src/futureDiary.ts:33` |
+| 不変性     | YES  | `[...]` でコピーして操作 | `packages/core/src/futureDiary.ts:83` |
 | 例外より型 | YES  | `Result` で失敗を表現    | `packages/core/src/types.ts:5`        |
-| 決定性     | YES  | relevance順にソート      | `packages/core/src/futureDiary.ts:35` |
+| 決定性     | YES  | relevance順にソート      | `packages/core/src/futureDiary.ts:113` |
 
 ### [OPEN]
 
 - [OPEN][TODO] 生成アルゴリズム（要約化の抑制）: 過去断片の再掲に寄り過ぎないように、style/intent/preferences model 主導で日次の下書きを生成する
-  - 背景: 現状は過去断片から文を抜き出して結合するため、下書きが「過去日記の要約/焼き直し」になりやすい。
-  - 現状: `toParagraph` + opening/closing phrases による簡易整形。
+  - 背景: 下書きが「過去日記の要約/焼き直し」に寄ると、ユーザが期待する「その日の入口」にならない。
+  - 現状: user model（intent/styleHints）+ 過去断片のキーワード抽出 + placeholder scaffold を組み立てる。
   - 受入条件:
     - style/intent/preferences model を入力として生成できる（モデルはユーザが確認/編集可能）。
     - 過去断片の用途を style 用/内容用に分離し、内容断片は “引用” ではなく “発想の補助” として扱う（要約/再掲を抑制）。
     - 評価用データ/確認手順を用意し、回帰を検知できる。
   - 根拠:
-    - `packages/core/src/futureDiary.ts:12`
-    - `packages/core/src/futureDiary.ts:51`
+    - `packages/core/src/userModel.ts:22`
+    - `packages/core/src/futureDiary.ts:81`
+    - `packages/core/src/futureDiaryLlm.ts:20`
 
 ### [ISSUE]
 

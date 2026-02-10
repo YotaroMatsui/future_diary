@@ -173,6 +173,44 @@ export type AuthMeResponse = {
 export const fetchAuthMe = async (baseUrl: string, accessToken: string) =>
   await getJson<AuthMeResponse>(`${baseUrl}/v1/auth/me`, { accessToken });
 
+export type UserModel = {
+  version: 1;
+  intent: string;
+  styleHints: {
+    openingPhrases: readonly string[];
+    closingPhrases: readonly string[];
+    maxParagraphs: number;
+  };
+  preferences: {
+    avoidCopyingFromFragments: boolean;
+  };
+};
+
+export type UserModelGetResponse = {
+  ok: true;
+  model: UserModel;
+  parseError: { type: string; message: string } | null;
+};
+
+export const fetchUserModel = async (baseUrl: string, accessToken: string) =>
+  await getJson<UserModelGetResponse>(`${baseUrl}/v1/user/model`, { accessToken });
+
+export type UserModelUpdateResponse = {
+  ok: true;
+  model: UserModel;
+};
+
+export const updateUserModel = async (baseUrl: string, accessToken: string, model: UserModel) =>
+  await postJson<UserModelUpdateResponse>(`${baseUrl}/v1/user/model`, { model }, { accessToken });
+
+export type UserModelResetResponse = {
+  ok: true;
+  model: UserModel;
+};
+
+export const resetUserModel = async (baseUrl: string, accessToken: string) =>
+  await postJson<UserModelResetResponse>(`${baseUrl}/v1/user/model/reset`, {}, { accessToken });
+
 export const logout = async (baseUrl: string, accessToken: string) =>
   await postJson<{ ok: true }>(`${baseUrl}/v1/auth/logout`, {}, { accessToken });
 
