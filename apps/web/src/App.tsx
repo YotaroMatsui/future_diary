@@ -72,6 +72,63 @@ const normalizeSnippet = (text: string, maxChars: number): string => {
   return normalized.length <= maxChars ? normalized : normalized.slice(0, maxChars) + "...";
 };
 
+const maskAccessToken = (token: string): string => {
+  const trimmed = token.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+
+  if (trimmed.length <= 12) {
+    return "*".repeat(trimmed.length);
+  }
+
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+};
+
+const copyTextToClipboard = async (text: string): Promise<void> => {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    throw new Error("nothing to copy");
+  }
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(trimmed);
+      return;
+    }
+  } catch {
+    // fall through to execCommand fallback
+  }
+
+  const body = typeof document === "undefined" ? null : document.body;
+  if (!body) {
+    throw new Error("clipboard is not available");
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = trimmed;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+
+  body.appendChild(textarea);
+
+  try {
+    textarea.focus();
+    textarea.select();
+
+    const ok = document.execCommand("copy");
+    if (!ok) {
+      throw new Error("execCommand copy failed");
+    }
+  } finally {
+    body.removeChild(textarea);
+  }
+};
+
 const generationStatusLabel = (status: DraftGenerationStatus): string => {
   switch (status) {
     case "created":
@@ -127,6 +184,8 @@ export const App = () => {
 
   const [accessToken, setAccessToken] = useState(() => readLocalStorageString(storageKeys.accessToken) ?? "");
   const [accessTokenInput, setAccessTokenInput] = useState("");
+  const [issuedAccessToken, setIssuedAccessToken] = useState<string | null>(null);
+  const [accessKeyRevealed, setAccessKeyRevealed] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -493,22 +552,24 @@ export const App = () => {
     setToast({ kind: "info", message: `${entry.date} を読み込みました。` });
   }, []);
 
-  const onCopyAccessKey = useCallback(async (): Promise<void> => {
-    if (accessTokenTrim.length === 0) {
+  const copyAccessKeyToClipboard = useCallback(async (token: string): Promise<void> => {
+    const tokenTrim = token.trim();
+    if (tokenTrim.length === 0) {
       return;
     }
 
     try {
-      if (!navigator.clipboard?.writeText) {
-        throw new Error("clipboard is not available");
-      }
-
-      await navigator.clipboard.writeText(accessTokenTrim);
+      await copyTextToClipboard(tokenTrim);
       setToast({ kind: "info", message: "アクセスキーをコピーしました。" });
-    } catch {
+    } catch (error) {
+      console.warn("Access key copy failed", { message: error instanceof Error ? error.message : String(error) });
       setToast({ kind: "error", message: "コピーに失敗しました（ブラウザの権限をご確認ください）。" });
     }
-  }, [accessTokenTrim]);
+  }, []);
+
+  const onCopyAccessKey = useCallback(async (): Promise<void> => {
+    await copyAccessKeyToClipboard(accessTokenTrim);
+  }, [accessTokenTrim, copyAccessKeyToClipboard]);
 
   const onCreateSession = useCallback(async (): Promise<void> => {
     setAuthLoading(true);
@@ -518,8 +579,10 @@ export const App = () => {
       const response = await createAuthSession(apiBaseUrl, { timezone: timezoneTrim || defaultTimezone });
       setAccessToken(response.accessToken);
       setAuthUser(response.user);
+      setIssuedAccessToken(response.accessToken);
+      setAccessKeyRevealed(false);
       setAccessTokenInput("");
-      setToast({ kind: "info", message: "ログインしました。アクセスキーは必ず控えてください。" });
+      setToast({ kind: "info", message: "アクセスキーを発行しました。安全な場所に保存してください。" });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "unknown error";
       setToast({ kind: "error", message: `ログインに失敗しました: ${errorMessage}` });
@@ -540,8 +603,11 @@ export const App = () => {
 
     try {
       const me = await fetchAuthMe(apiBaseUrl, tokenTrim);
+      setIssuedAccessToken(null);
+      setAccessKeyRevealed(false);
       setAccessToken(tokenTrim);
       setAuthUser(me.user);
+      setAccessTokenInput("");
       setToast({ kind: "info", message: "ログインしました。" });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "unknown error";
@@ -553,8 +619,14 @@ export const App = () => {
 
   const onLogout = useCallback(async (): Promise<void> => {
     if (accessTokenTrim.length === 0) {
+      setIssuedAccessToken(null);
+      setAccessKeyRevealed(false);
       setAccessToken("");
       setAuthUser(null);
+      setAccessTokenInput("");
+      resetEntryState();
+      setHistory([]);
+      setToast(null);
       return;
     }
 
@@ -565,6 +637,8 @@ export const App = () => {
       // ignore (token might already be invalidated)
     } finally {
       setAuthLoading(false);
+      setIssuedAccessToken(null);
+      setAccessKeyRevealed(false);
       setAccessToken("");
       setAuthUser(null);
       setAccessTokenInput("");
@@ -593,6 +667,8 @@ export const App = () => {
     try {
       await deleteUser(apiBaseUrl, accessTokenTrim);
       setToast({ kind: "info", message: "削除しました。" });
+      setIssuedAccessToken(null);
+      setAccessKeyRevealed(false);
       setAccessToken("");
       setAuthUser(null);
       setAccessTokenInput("");
@@ -648,13 +724,13 @@ export const App = () => {
         {header}
         <div className="layout layout--single">
           <section className="main">
-            <div className="card card--controls">
-              <h2 className="editorHeader__title">Sign in</h2>
-              <p className="hint">
-                アクセスキー（Bearer token）でユーザを識別します。アクセスキーは秘密情報です。紛失すると復旧できません。
-              </p>
+            <div className="onboarding">
+              <div className="card card--controls card--callout">
+                <h2 className="cardTitle">初めての方</h2>
+                <p className="hint">
+                  まずアクセスキーを発行して開始します。アクセスキーはログイン情報です。紛失すると復旧できません。
+                </p>
 
-              <div className="controls controls--two">
                 <label className="field">
                   <span className="field__label">timezone</span>
                   <input
@@ -665,36 +741,64 @@ export const App = () => {
                     autoComplete="off"
                   />
                 </label>
+
+                <div className="actions">
+                  <button
+                    className="button"
+                    onClick={() => void onCreateSession()}
+                    type="button"
+                    disabled={authLoading || timezoneTrim.length === 0}
+                  >
+                    {authLoading ? "処理中..." : "アクセスキーを発行して始める"}
+                  </button>
+                </div>
+
+                <details className="details">
+                  <summary>アクセスキーについて</summary>
+                  <p className="hint">
+                    発行後にアクセスキーを表示します。別の端末でも使う場合は、コピーして安全な場所に保存してください。
+                  </p>
+                </details>
+              </div>
+
+              <div className="card card--controls">
+                <h2 className="cardTitle">アクセスキーを持っている</h2>
+                <p className="hint">以前発行したアクセスキーを貼り付けてログインします。</p>
+
                 <label className="field">
                   <span className="field__label">access key</span>
                   <input
-                    className="input"
+                    className="input input--mono"
                     value={accessTokenInput}
                     onChange={(event) => setAccessTokenInput(event.target.value)}
-                    placeholder="既存のアクセスキーを貼り付け"
+                    placeholder="例: xxxx-xxxx-xxxx-xxxx"
                     autoComplete="off"
                     spellCheck={false}
                   />
                 </label>
-              </div>
 
-              <div className="actions">
-                <button className="button" onClick={() => void onCreateSession()} type="button" disabled={authLoading || timezoneTrim.length === 0}>
-                  {authLoading ? "処理中..." : "新しく始める"}
-                </button>
-                <button className="button button--secondary" onClick={() => void onLoginWithToken()} type="button" disabled={authLoading || accessTokenInput.trim().length === 0}>
-                  {authLoading ? "処理中..." : "アクセスキーでログイン"}
-                </button>
-              </div>
+                <div className="actions">
+                  <button
+                    className="button button--secondary"
+                    onClick={() => void onLoginWithToken()}
+                    type="button"
+                    disabled={authLoading || accessTokenInput.trim().length === 0}
+                  >
+                    {authLoading ? "処理中..." : "アクセスキーでログイン"}
+                  </button>
+                </div>
 
-              <div className="actions">
-                <button className="button button--ghost" onClick={() => setToast(null)} type="button" disabled={!toast}>
-                  トーストを閉じる
-                </button>
+                <p className="hint">timezone はログイン後に変更できます。共有PCではログアウトしてください。</p>
               </div>
-
-              {toast ? <div className={`toast ${toast.kind === "error" ? "toast--error" : "toast--info"}`}>{toast.message}</div> : null}
             </div>
+
+            <div className="actions">
+              <button className="button button--ghost" onClick={() => setToast(null)} type="button" disabled={!toast}>
+                トーストを閉じる
+              </button>
+            </div>
+
+            {toast ? <div className={`toast ${toast.kind === "error" ? "toast--error" : "toast--info"}`}>{toast.message}</div> : null}
           </section>
         </div>
       </div>
@@ -736,6 +840,54 @@ export const App = () => {
 
   return (
     <div className="app">
+      {issuedAccessToken ? (
+        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Access key issued">
+          <div className="modal">
+            <h2 className="modal__title">アクセスキーを保存してください</h2>
+            <p className="hint">
+              このアクセスキーがログイン情報です。紛失すると復旧できません。安全な場所に保存してください。
+            </p>
+
+            <div className="secretBox">
+              <div className="secretBox__label">access key</div>
+              <div className="secretBox__value">
+                <code>{accessKeyRevealed ? issuedAccessToken : maskAccessToken(issuedAccessToken)}</code>
+              </div>
+            </div>
+
+            <div className="actions">
+              <button
+                className="button"
+                onClick={() => void copyAccessKeyToClipboard(issuedAccessToken)}
+                type="button"
+              >
+                コピー
+              </button>
+              <button
+                className="button button--ghost"
+                onClick={() => setAccessKeyRevealed((prev) => !prev)}
+                type="button"
+              >
+                {accessKeyRevealed ? "隠す" : "表示"}
+              </button>
+              <button
+                className="button button--secondary"
+                onClick={() => {
+                  setIssuedAccessToken(null);
+                  setAccessKeyRevealed(false);
+                }}
+                type="button"
+              >
+                保存した
+              </button>
+            </div>
+
+            <p className="hint">
+              コピーが失敗した場合は「表示」を押して手動でコピーしてください。後からは Account からも表示/コピーできます。
+            </p>
+          </div>
+        </div>
+      ) : null}
       {header}
 
       <div className="layout">
@@ -909,7 +1061,30 @@ export const App = () => {
 
           <div className="card">
             <h2 className="historyHeader__title">Account</h2>
-            <p className="hint">アクセスキーは秘密です。削除は取り消しできません。</p>
+            <p className="hint">
+              アクセスキーはログイン情報です。別の端末でも使う場合はコピーして安全な場所に保存してください。削除は取り消しできません。
+            </p>
+
+            <label className="field">
+              <span className="field__label">access key</span>
+              <div className="secretRow">
+                <input
+                  className="input input--mono"
+                  value={accessKeyRevealed ? accessTokenTrim : maskAccessToken(accessTokenTrim)}
+                  readOnly
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  className="button button--ghost"
+                  onClick={() => setAccessKeyRevealed((prev) => !prev)}
+                  type="button"
+                  disabled={accessTokenTrim.length === 0}
+                >
+                  {accessKeyRevealed ? "隠す" : "表示"}
+                </button>
+              </div>
+            </label>
 
             <div className="actions">
               <button className="button button--secondary" onClick={() => void onCopyAccessKey()} type="button" disabled={accessTokenTrim.length === 0}>

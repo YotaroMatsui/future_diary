@@ -241,13 +241,16 @@ flowchart TD
 
 ### [OPEN]
 
-- [OPEN][TODO] 生成アルゴリズムの精度改善
-  - 背景: 現在は単純な text 連結。
-  - 現状: `toParagraph` による簡易整形。
+- [OPEN][TODO] 生成アルゴリズム（要約化の抑制）: 過去断片の再掲に寄り過ぎないように、style/intent/preferences model 主導で日次の下書きを生成する
+  - 背景: 現状は過去断片から文を抜き出して結合するため、下書きが「過去日記の要約/焼き直し」になりやすい。
+  - 現状: `toParagraph` + opening/closing phrases による簡易整形。
   - 受入条件:
-    - styleHints と retrieval 特徴の反映強化。
+    - style/intent/preferences model を入力として生成できる（モデルはユーザが確認/編集可能）。
+    - 過去断片の用途を style 用/内容用に分離し、内容断片は “引用” ではなく “発想の補助” として扱う（要約/再掲を抑制）。
+    - 評価用データ/確認手順を用意し、回帰を検知できる。
   - 根拠:
     - `packages/core/src/futureDiary.ts:12`
+    - `packages/core/src/futureDiary.ts:51`
 
 ### [ISSUE]
 

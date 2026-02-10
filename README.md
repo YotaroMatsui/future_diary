@@ -81,7 +81,7 @@
 - 依存インストール: `make install`
 - 環境変数: `apps/api/.dev.vars.example`, `apps/web/.env.example`
 - 起動: `make dev-api`, `make dev-web`
-- DB migration: `make db-migrate`（local）, `make db-migrate-remote`（remote）
+- DB migration: `make dev-api` 起動時に local D1 migration を自動適用（個別に実行する場合は `make db-migrate`）。remote は `make db-migrate-remote`。
 - 確認: `make ci`
 
 <details><summary>根拠（Evidence）</summary>
@@ -90,6 +90,7 @@
 - [E2] `Makefile:26` — dev-api。
 - [E3] `Makefile:29` — dev-web。
 - [E4] `Makefile:59` — ci。
+- [E5] `apps/api/package.json:6` — dev 起動前に local D1 migrations apply。
 </details>
 
 ## ディレクトリ構成
@@ -234,7 +235,41 @@ flowchart TD
 
 ### [ISSUE]
 
-- 現時点で blocker はなし。
+- [ISSUE][P1] 本番デプロイ実行と post-deploy 検証（secrets/DB/Vectorize/Queues/DO + smoke）を runbook で固定する
+  - See: `infra/prod-deploy-runbook.md`
+- [ISSUE][P1] Vector reindex/backfill の orchestration（Cron/Queues/Workflows）を導入し、検索品質を安定させる
+  - See: `apps/jobs/README.md`
+  - See: `apps/api/README.md`
+- [ISSUE][P1] 生成が「過去日記の要約」になりやすい問題を解消する（過去断片の扱いを再設計し、日次の下書き生成を “style/intent model 主導” に寄せる）
+  - See: `apps/api/README.md`
+  - See: `packages/core/README.md`
+  - See: `docs/requirements-ssot.md`
+- [ISSUE][P1] ユーザーモデル（style/intent/preferences）を構築し、生成に利用する（学習/更新/バージョニング/リセット）
+  - See: `packages/core/README.md`
+  - See: `packages/db/README.md`
+  - See: `apps/api/README.md`
+  - See: `docs/requirements-ssot.md`
+- [ISSUE][P1] ユーザーモデルをユーザが確認・編集できる UI/設定画面と API を追加する（編集内容が生成に反映される）
+  - See: `apps/web/README.md`
+  - See: `apps/api/README.md`
+  - See: `docs/requirements-ssot.md`
+- [ISSUE][P1] 生成の透明性: `sourceFragmentIds` の永続化/返却に加え、生成時に利用した「モデルの内容/バージョン」「参照断片（style用/内容用）」を説明可能にする
+  - See: `apps/api/README.md`
+  - See: `apps/web/README.md`
+- [ISSUE][P1] 生成品質: deterministic/LLM のプロンプト/整形/ガードレールを改善し、評価用データと確認手順を整備する（要約化の抑制も含む）
+  - See: `packages/core/README.md`
+  - See: `docs/requirements-ssot.md`
+- [ISSUE][P1] 履歴 UI: カレンダー表示/ページング（30件上限の解消）と過去日の閲覧導線を強化する
+  - See: `docs/requirements-ssot.md`
+  - See: `apps/web/README.md`
+- [ISSUE][P2] Auth hardening: session 期限/失効/再発行（紛失時）や token の保存方式（localStorage依存の低減）を見直す
+  - See: `apps/api/README.md`
+  - See: `apps/web/README.md`
+- [ISSUE][P3] 外部予定の取り込み（Google Calendar 等）: 連携/同意/スコープ設計と、予定を “断定ではなく入力補助” として下書きに反映する（任意機能）
+  - See: `docs/requirements-ssot.md`
+  - See: `apps/api/README.md`
+- [ISSUE][P2] IaC（Terraform）で Workers/Pages/D1/Vectorize/Queues/DO のプロビジョニングを自動化する
+  - See: `infra/README.md`
 
 ### [SUMMARY]
 
@@ -242,5 +277,7 @@ flowchart TD
 - `feat/auth-identity` で bearer token session 認証 + CORS allowlist + データ削除（アカウント/日記）を実装した。
 - `feat/async-generation-orchestration` で Queues + DO lock による生成の非同期化と polling 契約を実装した。
 - `docs/prod-deploy-runbook` で本番デプロイ runbook（Workers/Pages/D1/Vectorize）を `infra/prod-deploy-runbook.md` に集約した。
+- web のサインイン導線を再設計し、初回 access key 発行後に必ず表示/コピーできるようにした。
+- `make dev-api` 実行時に local D1 migrations を自動適用し、起動直後の `no such table` を防いだ。
 
 </details>

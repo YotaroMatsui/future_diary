@@ -121,7 +121,7 @@
 
 - 依存インストール: `make install`
 - 環境変数: `cp apps/api/.dev.vars.example apps/api/.dev.vars`
-- DB: `make db-migrate` でローカル D1 に migration を適用する（`auth_sessions` を含む）。
+- DB: `make dev-api` 起動時にローカル D1 migration を自動適用する（`auth_sessions` を含む）。個別に実行したい場合は `make db-migrate`。
 - CORS: `CORS_ALLOW_ORIGINS` を設定すると allowlist を上書きできる（production は `*` を許可しない）。
 - LLM: `.dev.vars` に `OPENAI_API_KEY` を設定すると外部LLM生成が有効になる（未設定時は deterministic）。
 - retrieval: `.dev.vars` の `AI_EMBEDDING_MODEL` で embeddings model を選ぶ（Vectorize は local 未サポートのため、binding を `remote: true` にして検証するか fallback を許容する）。
@@ -436,9 +436,13 @@ flowchart TD
   - 根拠:
     - `apps/jobs/src/index.ts:154`
 
+- [OPEN] 外部予定の取り込み（Google Calendar 等）を将来導入する場合の boundary 設計（OAuth/token管理/同意/PII・ログ方針）
+  - 背景: 予定を “断定ではなく入力補助” として下書きに反映したい。
+  - 現状: 未対応。
+
 ### [ISSUE]
 
-- [ISSUE] 過去日付の下書き生成が「過去記録を参照していない」ように見える P1 — 違反: 参照範囲（選択日付より前のみ）の説明不足 / 影響: 下書きが汎用文になりユーザーが期待を外す / 修正方針: (1) UI/ドキュメントで参照範囲を明示 (2) 必要なら参照断片数の返却や「最新記録でスタイル参照」オプション導入を検討 / 根拠: `apps/api/src/index.ts:397`, `packages/core/src/futureDiary.ts:38`
+- [ISSUE] 下書き生成が「過去日記の要約/焼き直し」になりやすい P1 — 違反: “その日の下書き” より “過去断片の再掲” が強い / 影響: ユーザが期待する「その日の入口」にならない / 修正方針: (1) 過去断片の扱いを style 用/内容用に分離し、style/intent/preferences model 主導で生成する (2) モデルをユーザが確認・編集できる API/UI を追加 (3) 生成時にモデル/参照の内訳を返却して説明可能にする / 根拠: `apps/api/src/futureDiaryDraftGeneration.ts:40`, `apps/api/src/futureDiaryDraftGeneration.ts:66`, `packages/core/src/futureDiary.ts:12`, `packages/core/src/futureDiary.ts:51`
 
 ### [SUMMARY]
 

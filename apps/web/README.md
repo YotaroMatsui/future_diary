@@ -10,6 +10,7 @@
   - See: `packages/ui/README.md`
 - 注意:
   - accessToken/timezone は localStorage に保存する（accessToken は秘密情報）。
+  - 初回発行時は accessToken を modal 表示し、copy/reveal で保存を促す。
 
 <details>
 <summary>目次</summary>
@@ -35,11 +36,11 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/main.tsx:12` — React root mount。
-- [E2] `apps/web/src/App.tsx:625` — 当日初回の draft auto load。
-- [E3] `apps/web/src/App.tsx:263` — draft API call。
-- [E4] `apps/web/src/App.tsx:356` — save API call。
-- [E5] `apps/web/src/App.tsx:403` — confirm API call。
-- [E6] `apps/web/src/App.tsx:224` — history list API call。
+- [E2] `apps/web/src/App.tsx:700` — 当日初回の draft auto load。
+- [E3] `apps/web/src/App.tsx:321` — draft API call。
+- [E4] `apps/web/src/App.tsx:414` — save API call。
+- [E5] `apps/web/src/App.tsx:461` — confirm API call。
+- [E6] `apps/web/src/App.tsx:283` — history list API call。
 </details>
 
 ## スコープ
@@ -63,9 +64,9 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:778` — draft 操作 UI。
-- [E2] `apps/web/src/App.tsx:853` — editor UI。
-- [E3] `apps/web/src/App.tsx:885` — history UI。
+- [E1] `apps/web/src/App.tsx:929` — draft 操作 UI。
+- [E2] `apps/web/src/App.tsx:1003` — editor UI。
+- [E3] `apps/web/src/App.tsx:1030` — history UI。
 - [E4] `apps/web/src/api.ts:147` — draft client。
 </details>
 
@@ -108,7 +109,7 @@
 
 | 公開シンボル  | 種別      | 定義元        | 目的           | 根拠                     |
 | ------------- | --------- | ------------- | -------------- | ------------------------ |
-| `App`                 | component | `src/App.tsx` | UI root | `apps/web/src/App.tsx:119` |
+| `App`                 | component | `src/App.tsx` | UI root | `apps/web/src/App.tsx:176` |
 | `fetchFutureDiaryDraft` | function  | `src/api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:147` |
 | `createAuthSession`     | function  | `src/api.ts`  | session 作成 | `apps/web/src/api.ts:162` |
 | `fetchAuthMe`           | function  | `src/api.ts`  | session 検証 | `apps/web/src/api.ts:173` |
@@ -192,6 +193,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
 - 失敗セマンティクス:
   - fetch失敗時に toast を error 表示（status + API payload 整形）。
 - メインフロー:
+  - 初回: session 作成 -> access key modal -> 当日 draft 生成/読み込み。
   - (accessToken/timezone が揃っていれば) mount -> 当日 draft 生成/読み込み -> generationStatus を polling -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
@@ -212,12 +214,13 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:625` — mount時の自動生成。
+- [E1] `apps/web/src/App.tsx:700` — mount時の自動生成。
 - [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
 - [E3] `apps/web/src/api.ts:147` — draft client。
 - [E4] `apps/web/src/api.ts:194` — save client。
 - [E5] `apps/web/src/api.ts:203` — confirm client。
 - [E6] `apps/web/src/api.ts:215` — list client。
+- [E7] `apps/web/src/App.tsx:843` — access key modal（発行直後の表示/コピー導線）。
 </details>
 
 ## 品質
@@ -228,14 +231,14 @@ flowchart TD
 
 | リスク            | 対策（検証入口）          | 根拠                      |
 | ----------------- | ------------------------- | ------------------------- |
-| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:332` |
+| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:290` |
 | timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:61` |
-| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:848` |
+| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:999` |
 
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/api.ts:84` — 非200で例外化。
-- [E2] `apps/web/src/App.tsx:332` — 例外を toast 表示。
+- [E2] `apps/web/src/App.tsx:290` — 例外を toast 表示。
 - [E3] `Makefile:50` — `make smoke` target。
 - [E4] `apps/web/e2e-smoke.test.ts:1` — E2E smoke。
 </details>
@@ -250,7 +253,7 @@ flowchart TD
 | 項目         | 判定 | 理由                          | 根拠                      |
 | ------------ | ---- | ----------------------------- | ------------------------- |
 | 副作用の隔離 | YES  | fetch/localStorage を境界へ分離 | `apps/web/src/api.ts:65` |
-| 不変性       | YES  | state更新は新値セットのみ     | `apps/web/src/App.tsx:857` |
+| 不変性       | YES  | state更新は新値セットのみ     | `apps/web/src/App.tsx:1008` |
 | 例外より型   | NO   | 非200を例外として扱う         | `apps/web/src/api.ts:84`  |
 
 ### [OPEN]
@@ -259,7 +262,12 @@ flowchart TD
 
 ### [ISSUE]
 
-- なし。
+- [ISSUE][P1] ユーザーモデル（style/intent/preferences）を確認・編集できる UI（設定/プロファイル）を追加し、生成に反映させる
+  - See: `apps/api/README.md`
+  - See: `docs/requirements-ssot.md`
+- [ISSUE][P1] 生成の透明性 UI: 生成に利用した「モデルの内容/バージョン」「参照断片（style用/内容用）」を表示できるようにする
+  - See: `apps/api/README.md`
+  - See: `README.md`
 
 ### [SUMMARY]
 

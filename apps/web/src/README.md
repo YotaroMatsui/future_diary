@@ -9,6 +9,7 @@
   - See: `../README.md`
 - 注意:
   - accessToken/timezone は localStorage に保存する（accessToken は秘密情報）。
+  - 初回発行時は accessToken を modal 表示し、copy/reveal で保存を促す。
 
 <details><summary>目次</summary>
 
@@ -31,7 +32,7 @@
 <details><summary>根拠（Evidence）</summary>
 
 - [E1] `apps/web/src/main.tsx:12` — mount。
-- [E2] `apps/web/src/App.tsx:625` — draft auto load。
+- [E2] `apps/web/src/App.tsx:700` — draft auto load。
 - [E3] `apps/web/src/api.ts:65` — fetch boundary。
 </details>
 
@@ -56,7 +57,7 @@
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:119`
+- [E1] `apps/web/src/App.tsx:176`
 - [E2] `apps/web/src/api.ts:147`
 - [E3] `apps/web/src/app.css:71`
 </details>
@@ -100,7 +101,7 @@
 
 | 公開シンボル  | 種別      | 定義元    | 目的           | 根拠                     |
 | ------------- | --------- | --------- | -------------- | ------------------------ |
-| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:119` |
+| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:176` |
 | `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:147` |
 | `createAuthSession`     | function  | `api.ts`  | session 作成 | `apps/web/src/api.ts:162` |
 | `fetchAuthMe`           | function  | `api.ts`  | session 検証 | `apps/web/src/api.ts:173` |
@@ -177,6 +178,7 @@ import { App } from "./App";
 - 失敗セマンティクス:
   - 非200は例外として扱い、UI は toast に表示する。
 - メインフロー:
+  - 初回: session 作成 -> access key modal -> 当日 draft 生成トリガ。
   - mount -> 当日 draft 生成トリガ -> generationStatus を polling -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
@@ -200,8 +202,9 @@ flowchart TD
 
 <details><summary>根拠（Evidence）</summary>
 
-- [E1] `apps/web/src/App.tsx:625` — auto load。
+- [E1] `apps/web/src/App.tsx:700` — auto load。
 - [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
+- [E3] `apps/web/src/App.tsx:843` — access key modal（発行直後の表示/コピー導線）。
 </details>
 
 ## 品質
@@ -212,9 +215,9 @@ flowchart TD
 
 | リスク            | 対策（検証入口） | 根拠                      |
 | ----------------- | ---------------- | ------------------------- |
-| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:332` |
+| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:290` |
 | timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:61` |
-| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:848` |
+| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:999` |
 
 <details><summary>根拠（Evidence）</summary>
 
