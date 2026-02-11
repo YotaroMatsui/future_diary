@@ -444,6 +444,47 @@ describe("future-diary-api", () => {
     expect(json.service).toBe("future-diary-api");
   });
 
+  test("CORS allows Pages production origin in production mode", async () => {
+    const origin = "https://future-diary-web.pages.dev";
+    const response = await app.request(
+      "/health",
+      {
+        headers: { origin },
+      },
+      { APP_ENV: "production" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+  });
+
+  test("CORS allows Pages preview subdomain origin in production mode", async () => {
+    const origin = "https://7db11f33.future-diary-web.pages.dev";
+    const response = await app.request(
+      "/health",
+      {
+        headers: { origin },
+      },
+      { APP_ENV: "production" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+  });
+
+  test("CORS denies unknown origin in production mode", async () => {
+    const response = await app.request(
+      "/health",
+      {
+        headers: { origin: "https://example.com" },
+      },
+      { APP_ENV: "production" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
   test("POST /v1/auth/session creates session and GET /v1/auth/me returns user", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };

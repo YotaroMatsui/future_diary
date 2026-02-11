@@ -95,12 +95,67 @@ type AuthContext = {
 const app = new Hono<{ Bindings: WorkerBindings; Variables: { auth: AuthContext } }>();
 
 const defaultCorsAllowOrigins = ["http://127.0.0.1:5173", "http://localhost:5173"] as const;
+const defaultProductionCorsAllowOrigins = [
+  "https://future-diary-web.pages.dev",
+  "https://*.future-diary-web.pages.dev",
+] as const;
 
 const parseCorsAllowOrigins = (raw: string | undefined): readonly string[] =>
   (raw ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0);
+
+const wildcardSubdomainOriginPattern = /^https:\/\/\*\.[a-z0-9.-]+$/i;
+
+const isOriginAllowed = (origin: string, allowlist: readonly string[]): boolean => {
+  const normalizedOrigin = origin.trim();
+  if (normalizedOrigin.length === 0) {
+    return false;
+  }
+
+  let parsedOrigin: URL | null = null;
+  const getParsedOrigin = (): URL | null => {
+    if (parsedOrigin !== null) {
+      return parsedOrigin;
+    }
+
+    try {
+      parsedOrigin = new URL(normalizedOrigin);
+      return parsedOrigin;
+    } catch {
+      return null;
+    }
+  };
+
+  for (const allowedOrigin of allowlist) {
+    if (allowedOrigin === normalizedOrigin) {
+      return true;
+    }
+
+    if (!wildcardSubdomainOriginPattern.test(allowedOrigin)) {
+      continue;
+    }
+
+    const parsed = getParsedOrigin();
+    if (!parsed) {
+      continue;
+    }
+
+    if (parsed.protocol !== "https:") {
+      continue;
+    }
+
+    const requiredSuffix = allowedOrigin.slice("https://*.".length).toLowerCase();
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (hostname.endsWith(`.${requiredSuffix}`) && hostname.length > requiredSuffix.length) {
+      return true;
+    }
+  }
+
+  return false;
+};
 
 app.use(
   "*",
@@ -115,10 +170,10 @@ app.use(
         configuredOrigins.length > 0
           ? configuredOrigins
           : context.env?.APP_ENV === "production"
-            ? []
+            ? defaultProductionCorsAllowOrigins
             : defaultCorsAllowOrigins;
 
-      return allowlist.includes(origin) ? origin : null;
+      return isOriginAllowed(origin, allowlist) ? origin : null;
     },
     allowMethods: ["GET", "POST", "OPTIONS"],
     allowHeaders: ["content-type", "authorization"],

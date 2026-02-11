@@ -126,7 +126,7 @@
 - 依存インストール: `make install`
 - 環境変数: `cp apps/api/.dev.vars.example apps/api/.dev.vars`
 - DB: `make dev-api` 起動時にローカル D1 migration を自動適用する（`auth_sessions` を含む）。個別に実行したい場合は `make db-migrate`。
-- CORS: `CORS_ALLOW_ORIGINS` を設定すると allowlist を上書きできる（production は `*` を許可しない）。
+- CORS: `CORS_ALLOW_ORIGINS` を設定すると allowlist を上書きできる（production は `*` を許可しない）。未設定時の production 既定は `https://future-diary-web.pages.dev` と `https://*.future-diary-web.pages.dev` を許可する。
 - LLM: `.dev.vars` に `OPENAI_API_KEY` を設定すると外部LLM生成が有効になる（未設定時は deterministic）。
 - retrieval: `.dev.vars` の `AI_EMBEDDING_MODEL` で embeddings model を選ぶ（Vectorize は local 未サポートのため、binding を `remote: true` にして検証するか fallback を許容する）。
 - 起動: `make dev-api`
