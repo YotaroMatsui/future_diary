@@ -260,6 +260,13 @@ flowchart TD
   - See: `apps/api/README.md`
 - [ISSUE][P2] IaC（Terraform）で Workers/Pages/D1/Vectorize/Queues/DO のプロビジョニングを自動化する
   - See: `infra/README.md`
+- [ISSUE][P1] Web のモバイル対応（responsive layout / touch UX / safe-area / mobile E2E）を実装し、主要フロー（ログイン・生成・編集・保存・確定・履歴）を iOS Safari / Android Chrome で成立させる
+  - See: `apps/web/README.md`
+- [ISSUE][P1] Web の component 分割ルール（責務境界・命名・配置・状態管理の原則）を定義し、`App.tsx` 集中実装を段階的に分割する計画と受け入れ基準を整備する
+  - See: `apps/web/README.md`
+- [ISSUE][P2] Storybook を導入し、主要 UI 状態（editor/history/auth/profile/toast）を stories と interaction test で継続検証できるようにする
+  - See: `apps/web/README.md`
+  - See: `packages/ui/README.md`
 
 ### [SUMMARY]
 

@@ -273,7 +273,25 @@ flowchart TD
 
 ### [ISSUE]
 
-- なし。
+- [ISSUE][P1] モバイル向けレイアウト最適化（320-430px）: `layout` / `appHeader` / `controls` / `actions` / `sidebar` の優先度を再設計し、1画面内で主要操作（生成・保存・確定）に到達しやすくする
+  - See: `apps/web/src/App.tsx`
+  - See: `apps/web/src/app.css`
+- [ISSUE][P1] タッチ操作の可用性を改善する: カレンダー日付セルと主要ボタンのタップ領域を 44px 以上に揃え、hover 依存の操作感を touch/keyboard 操作でも同等にする
+  - See: `apps/web/src/App.tsx`
+  - See: `apps/web/src/app.css`
+- [ISSUE][P1] モバイル viewport 対応を強化する: `100vh` 依存の高さ計算を見直し、iOS Safari の dynamic toolbar / safe-area / キーボード表示時でも履歴と編集欄が隠れないようにする
+  - See: `apps/web/src/app.css`
+- [ISSUE][P1] モバイル E2E を追加する: Playwright (WebKit/Chromium) のスマホ viewport で、ログイン -> 下書き生成 -> 編集保存 -> 確定 -> 履歴再読込 を自動検証する
+  - See: `apps/web/e2e-smoke.test.ts`
+- [ISSUE][P1] component 分割ルールを定義する: `App.tsx` の責務を `auth` / `editor` / `history` / `account` の feature 単位へ分離し、`components/` と `hooks/` の配置規約・命名規約・state 境界（local/server/global）を README で SSOT 化する
+  - See: `apps/web/src/App.tsx`
+  - See: `apps/web/src/README.md`
+- [ISSUE][P2] Storybook を導入する: Vite builder で `apps/web` と `packages/ui` の UI state を stories 化し、interaction test（保存中/エラー/空データ/長文）を CI で実行する
+  - See: `apps/web/package.json`
+  - See: `packages/ui/README.md`
+- [ISSUE][P2] 低速・不安定回線向けの UX を整備する: 保存/確定の再試行導線、処理状態の可視化、編集中テキスト消失を防ぐ最小オフライン耐性（local draft）を追加する
+  - See: `apps/web/src/App.tsx`
+  - See: `apps/web/src/api.ts`
 
 ### [SUMMARY]
 
