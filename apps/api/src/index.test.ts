@@ -10,6 +10,10 @@ const createInMemoryD1 = () => {
     status: "draft" | "confirmed";
     generation_status: "created" | "processing" | "failed" | "completed";
     generation_error: string | null;
+    generation_source: "llm" | "deterministic" | "fallback" | null;
+    generation_user_model_json: string | null;
+    generation_source_fragment_ids_json: string;
+    generation_keywords_json: string;
     generated_text: string;
     final_text: string | null;
     created_at: string;
@@ -149,6 +153,10 @@ const createInMemoryD1 = () => {
                 status: "draft",
                 generation_status: bound.length >= 4 ? "completed" : "created",
                 generation_error: null,
+                generation_source: null,
+                generation_user_model_json: null,
+                generation_source_fragment_ids_json: "[]",
+                generation_keywords_json: "[]",
                 generated_text: generatedText ?? "",
                 final_text: null,
                 created_at: now(),
@@ -280,7 +288,15 @@ const createInMemoryD1 = () => {
             query.includes("UPDATE diary_entries SET generation_status = 'completed'") &&
             query.includes("generated_text = ?")
           ) {
-            const [generatedText, userId, date] = bound as [string, string, string];
+            const [
+              generationSource,
+              generationUserModelJson,
+              sourceFragmentIdsJson,
+              keywordsJson,
+              generatedText,
+              userId,
+              date,
+            ] = bound as [DiaryRow["generation_source"], DiaryRow["generation_user_model_json"], string, string, string, string, string];
             const key = entryKey(userId, date);
             const existing = entries.get(key);
 
@@ -289,6 +305,10 @@ const createInMemoryD1 = () => {
                 ...existing,
                 generation_status: "completed",
                 generation_error: null,
+                generation_source: generationSource,
+                generation_user_model_json: generationUserModelJson,
+                generation_source_fragment_ids_json: sourceFragmentIdsJson,
+                generation_keywords_json: keywordsJson,
                 generated_text: generatedText,
                 updated_at: now(),
               });
@@ -485,8 +505,18 @@ describe("future-diary-api", () => {
     const response1 = await app.request("/v1/future-diary/draft", requestInit, env);
     const json1 = (await response1.json()) as {
       ok: boolean;
-      draft?: { title: string; body: string };
-      meta?: { cached: boolean; entryId: string; generationStatus?: string };
+      draft?: { title: string; body: string; sourceFragmentIds?: readonly string[]; keywords?: readonly string[] };
+      meta?: {
+        cached: boolean;
+        entryId: string;
+        generationStatus?: string;
+        generation?: {
+          source?: "llm" | "deterministic" | "fallback" | null;
+          userModel?: { version?: number } | null;
+          keywords?: readonly string[];
+          sourceFragmentIds?: readonly string[];
+        };
+      };
     };
 
     expect(response1.status).toBe(200);
@@ -494,6 +524,12 @@ describe("future-diary-api", () => {
     expect(json1.draft?.title).toBe("2026-02-07 の未来日記");
     expect(json1.meta?.cached).toBe(false);
     expect(json1.meta?.generationStatus).toBe("completed");
+    expect(json1.meta?.generation?.source).toBe("fallback");
+    expect(json1.meta?.generation?.userModel?.version).toBe(1);
+    expect(Array.isArray(json1.draft?.sourceFragmentIds)).toBe(true);
+    expect(Array.isArray(json1.draft?.keywords)).toBe(true);
+    expect(json1.draft?.sourceFragmentIds).toEqual(json1.meta?.generation?.sourceFragmentIds);
+    expect(json1.draft?.keywords).toEqual(json1.meta?.generation?.keywords);
     expect(db.__data.revisions.length).toBe(1);
     expect(db.__data.revisions[0]?.kind).toBe("generated");
     expect(db.__data.revisions[0]?.entry_id).toBe(json1.meta?.entryId);
@@ -502,8 +538,18 @@ describe("future-diary-api", () => {
     const response2 = await app.request("/v1/future-diary/draft", requestInit, env);
     const json2 = (await response2.json()) as {
       ok: boolean;
-      draft?: { title: string; body: string };
-      meta?: { cached: boolean; entryId: string; generationStatus?: string };
+      draft?: { title: string; body: string; sourceFragmentIds?: readonly string[]; keywords?: readonly string[] };
+      meta?: {
+        cached: boolean;
+        entryId: string;
+        generationStatus?: string;
+        generation?: {
+          source?: "llm" | "deterministic" | "fallback" | null;
+          userModel?: { version?: number } | null;
+          keywords?: readonly string[];
+          sourceFragmentIds?: readonly string[];
+        };
+      };
     };
 
     expect(response2.status).toBe(200);
@@ -511,6 +557,10 @@ describe("future-diary-api", () => {
     expect(json2.draft?.body).toBe(json1.draft?.body);
     expect(json2.meta?.cached).toBe(true);
     expect(json2.meta?.generationStatus).toBe("completed");
+    expect(json2.meta?.generation?.source).toBe("fallback");
+    expect(json2.meta?.generation?.userModel?.version).toBe(1);
+    expect(json2.draft?.sourceFragmentIds).toEqual(json1.draft?.sourceFragmentIds);
+    expect(json2.draft?.keywords).toEqual(json1.draft?.keywords);
     expect(db.__data.revisions.length).toBe(1);
   });
 
@@ -578,12 +628,23 @@ describe("future-diary-api", () => {
     await processGenerationQueueBatch(batch, env as unknown as any, {} as ExecutionContext);
 
     const response2 = await app.request("/v1/future-diary/draft", requestInit, env);
-    const json2 = (await response2.json()) as { ok: boolean; draft?: { body: string }; meta?: { generationStatus?: string } };
+    const json2 = (await response2.json()) as {
+      ok: boolean;
+      draft?: { body: string; sourceFragmentIds?: readonly string[]; keywords?: readonly string[] };
+      meta?: {
+        generationStatus?: string;
+        generation?: { source?: "llm" | "deterministic" | "fallback" | null; userModel?: { version?: number } | null };
+      };
+    };
 
     expect(response2.status).toBe(200);
     expect(json2.ok).toBe(true);
     expect(json2.meta?.generationStatus).toBe("completed");
+    expect(json2.meta?.generation?.source).toBe("fallback");
+    expect(json2.meta?.generation?.userModel?.version).toBe(1);
     expect(json2.draft?.body.length).toBeGreaterThan(0);
+    expect(Array.isArray(json2.draft?.sourceFragmentIds)).toBe(true);
+    expect(Array.isArray(json2.draft?.keywords)).toBe(true);
     expect(db.__data.revisions.length).toBe(1);
     expect(db.__data.revisions[0]?.kind).toBe("generated");
   });

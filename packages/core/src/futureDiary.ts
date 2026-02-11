@@ -78,7 +78,7 @@ const toKeywordList = (text: string): string[] => {
   return [...new Set(words)];
 };
 
-const deriveKeywords = (fragments: readonly SourceFragment[], maxKeywords: number): string[] => {
+export const deriveKeywords = (fragments: readonly SourceFragment[], maxKeywords: number): string[] => {
   const scores = new Map<string, number>();
   const ranked = [...fragments].sort((left, right) => right.relevance - left.relevance).slice(0, 8);
 

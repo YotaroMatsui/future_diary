@@ -23,6 +23,158 @@ const storageKeys = {
   timezone: "futureDiary.timezone",
 } as const;
 
+const historyPageSize = 30;
+const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+const monthKeyPattern = /^\d{4}-\d{2}$/;
+const calendarWeekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const monthLabelFormatter = new Intl.DateTimeFormat("ja-JP", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "long",
+});
+
+type CalendarDay = {
+  isoDate: string;
+  dayOfMonth: number;
+  inCurrentMonth: boolean;
+};
+
+const parseIsoDateParts = (
+  isoDate: string,
+): { year: number; month: number; day: number } | null => {
+  if (!isoDatePattern.test(isoDate)) {
+    return null;
+  }
+
+  const [yearText, monthText, dayText] = isoDate.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+
+  return { year, month, day };
+};
+
+const formatUtcDateAsIso = (date: Date): string => {
+  const year = String(date.getUTCFullYear()).padStart(4, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const shiftIsoDate = (isoDate: string, diffDays: number): string | null => {
+  const parsed = parseIsoDateParts(isoDate);
+  if (!parsed) {
+    return null;
+  }
+
+  const utcDate = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day));
+  if (Number.isNaN(utcDate.valueOf())) {
+    return null;
+  }
+
+  utcDate.setUTCDate(utcDate.getUTCDate() + diffDays);
+  return formatUtcDateAsIso(utcDate);
+};
+
+const previousIsoDate = (isoDate: string): string | null => shiftIsoDate(isoDate, -1);
+
+const parseMonthKey = (
+  monthKey: string,
+): { year: number; month: number } | null => {
+  if (!monthKeyPattern.test(monthKey)) {
+    return null;
+  }
+
+  const [yearText, monthText] = monthKey.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null;
+  }
+
+  return { year, month };
+};
+
+const formatMonthKey = (year: number, month: number): string =>
+  `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}`;
+
+const shiftMonthKey = (monthKey: string, diffMonths: number): string => {
+  const parsed = parseMonthKey(monthKey);
+  if (!parsed) {
+    return monthKey;
+  }
+
+  const base = new Date(Date.UTC(parsed.year, parsed.month - 1, 1));
+  base.setUTCMonth(base.getUTCMonth() + diffMonths);
+  return formatMonthKey(base.getUTCFullYear(), base.getUTCMonth() + 1);
+};
+
+const formatMonthLabel = (monthKey: string): string => {
+  const parsed = parseMonthKey(monthKey);
+  if (!parsed) {
+    return monthKey;
+  }
+
+  return monthLabelFormatter.format(new Date(Date.UTC(parsed.year, parsed.month - 1, 1)));
+};
+
+const buildCalendarDays = (monthKey: string): readonly CalendarDay[] => {
+  const parsed = parseMonthKey(monthKey);
+  if (!parsed) {
+    return [];
+  }
+
+  const firstDate = new Date(Date.UTC(parsed.year, parsed.month - 1, 1));
+  const startOffset = firstDate.getUTCDay();
+  const gridStart = new Date(Date.UTC(parsed.year, parsed.month - 1, 1 - startOffset));
+  const days: CalendarDay[] = [];
+
+  for (let index = 0; index < 42; index += 1) {
+    const day = new Date(gridStart);
+    day.setUTCDate(gridStart.getUTCDate() + index);
+    days.push({
+      isoDate: formatUtcDateAsIso(day),
+      dayOfMonth: day.getUTCDate(),
+      inCurrentMonth: day.getUTCMonth() === parsed.month - 1,
+    });
+  }
+
+  return days;
+};
+
+const mergeHistoryEntries = (
+  current: readonly DiaryEntryWithBody[],
+  incoming: readonly DiaryEntryWithBody[],
+): readonly DiaryEntryWithBody[] => {
+  const mergedById = new Map<string, DiaryEntryWithBody>();
+  for (const entry of current) {
+    mergedById.set(entry.id, entry);
+  }
+  for (const entry of incoming) {
+    mergedById.set(entry.id, entry);
+  }
+
+  return [...mergedById.values()].sort((left, right) => right.date.localeCompare(left.date));
+};
+
+const nextHistoryCursorDate = (entries: readonly DiaryEntryWithBody[]): string | null => {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const oldestEntry = entries[entries.length - 1];
+  if (!oldestEntry) {
+    return null;
+  }
+
+  return previousIsoDate(oldestEntry.date);
+};
+
 const readLocalStorageString = (key: string): string | null => {
   try {
     return localStorage.getItem(key);
@@ -206,10 +358,15 @@ export const App = () => {
   const [title, setTitle] = useState<string>("未来日記");
   const [body, setBody] = useState<string>("");
   const [sourceFragmentIds, setSourceFragmentIds] = useState<readonly string[]>([]);
+  const [generationKeywords, setGenerationKeywords] = useState<readonly string[]>([]);
   const [draftMeta, setDraftMeta] = useState<FutureDiaryDraftResponse["meta"] | null>(null);
 
   const [history, setHistory] = useState<readonly DiaryEntryWithBody[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyCursorDate, setHistoryCursorDate] = useState<string | null>(null);
+  const [historyMonth, setHistoryMonth] = useState(() => selectedDate.slice(0, 7));
 
   const [draftLoading, setDraftLoading] = useState(false);
   const [saveLoading, setSaveLoading] = useState(false);
@@ -227,6 +384,15 @@ export const App = () => {
   const hasLoadedEntry = entryId !== null && status !== null;
 
   const todayDate = useMemo(() => formatDateInTimeZone(new Date(), timezoneTrim), [timezoneTrim]);
+  const historyByDate = useMemo(() => {
+    const byDate = new Map<string, DiaryEntryWithBody>();
+    for (const entry of history) {
+      byDate.set(entry.date, entry);
+    }
+    return byDate;
+  }, [history]);
+  const calendarDays = useMemo(() => buildCalendarDays(historyMonth), [historyMonth]);
+  const historyMonthLabel = useMemo(() => formatMonthLabel(historyMonth), [historyMonth]);
 
   const resetEntryState = useCallback((): void => {
     setEntryId(null);
@@ -234,8 +400,17 @@ export const App = () => {
     setTitle("未来日記");
     setBody("");
     setSourceFragmentIds([]);
+    setGenerationKeywords([]);
     setDraftMeta(null);
     setDirty(false);
+  }, []);
+
+  const resetHistoryState = useCallback((): void => {
+    setHistory([]);
+    setHistoryHasMore(false);
+    setHistoryCursorDate(null);
+    setHistoryLoading(false);
+    setHistoryLoadingMore(false);
   }, []);
 
   useEffect(() => {
@@ -250,12 +425,20 @@ export const App = () => {
     // User boundary changed: clear state and allow a single auto-load again.
     draftRequestSeq.current += 1;
     resetEntryState();
-    setHistory([]);
+    resetHistoryState();
     setUserModel(null);
     setUserModelDraft(null);
     setUserModelDirty(false);
     setAutoLoadPending(true);
-  }, [accessTokenTrim, resetEntryState]);
+  }, [accessTokenTrim, resetEntryState, resetHistoryState]);
+
+  useEffect(() => {
+    if (!isoDatePattern.test(selectedDate)) {
+      return;
+    }
+
+    setHistoryMonth(selectedDate.slice(0, 7));
+  }, [selectedDate]);
 
   useEffect(() => {
     if (accessTokenTrim.length === 0) {
@@ -379,28 +562,52 @@ export const App = () => {
   }, [accessTokenTrim, isAuthenticated]);
 
   const refreshHistory = useCallback(
-    async (opts?: { onOrBeforeDate?: string }): Promise<void> => {
+    async (opts?: { onOrBeforeDate?: string; append?: boolean }): Promise<void> => {
+      const append = opts?.append ?? false;
       if (!canCallApi) {
-        setHistory([]);
+        resetHistoryState();
         return;
       }
 
-      setHistoryLoading(true);
+      if (append) {
+        setHistoryLoadingMore(true);
+      } else {
+        setHistoryLoading(true);
+      }
+
       try {
         const response = await listDiaryEntries(apiBaseUrl, accessTokenTrim, {
           onOrBeforeDate: opts?.onOrBeforeDate,
-          limit: 30,
+          limit: historyPageSize,
         });
-        setHistory(response.entries);
+        const nextHistory = append ? mergeHistoryEntries(history, response.entries) : response.entries;
+        setHistory(nextHistory);
+        setHistoryHasMore(response.entries.length === historyPageSize);
+        setHistoryCursorDate(nextHistoryCursorDate(nextHistory));
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "unknown error";
         setToast({ kind: "error", message: `履歴の取得に失敗しました: ${errorMessage}` });
       } finally {
-        setHistoryLoading(false);
+        if (append) {
+          setHistoryLoadingMore(false);
+        } else {
+          setHistoryLoading(false);
+        }
       }
     },
-    [accessTokenTrim, canCallApi],
+    [accessTokenTrim, canCallApi, history, resetHistoryState],
   );
+
+  const onLoadOlderHistory = useCallback(async (): Promise<void> => {
+    if (!historyHasMore || !historyCursorDate || historyLoading || historyLoadingMore) {
+      return;
+    }
+
+    await refreshHistory({
+      onOrBeforeDate: historyCursorDate,
+      append: true,
+    });
+  }, [historyCursorDate, historyHasMore, historyLoading, historyLoadingMore, refreshHistory]);
 
   const loadDraft = useCallback(
     async (opts: { date: string; reason: "auto" | "manual" }): Promise<void> => {
@@ -421,6 +628,7 @@ export const App = () => {
           setTitle(response.draft.title);
           setBody(response.draft.body);
           setSourceFragmentIds(response.draft.sourceFragmentIds);
+          setGenerationKeywords(response.draft.keywords);
           setDraftMeta(response.meta);
           setDirty(false);
         };
@@ -645,6 +853,7 @@ export const App = () => {
     setTitle(`${entry.date} の未来日記`);
     setBody(entry.body);
     setSourceFragmentIds([]);
+    setGenerationKeywords([]);
     setDraftMeta({
       userId: entry.userId,
       entryId: entry.id,
@@ -657,6 +866,24 @@ export const App = () => {
     });
     setDirty(false);
     setToast({ kind: "info", message: `${entry.date} を読み込みました。` });
+  }, []);
+
+  const onSelectCalendarDate = useCallback(
+    (date: string): void => {
+      setAutoLoadPending(false);
+      const entry = historyByDate.get(date);
+      if (entry) {
+        onSelectHistoryEntry(entry);
+        return;
+      }
+
+      setSelectedDate(date);
+    },
+    [historyByDate, onSelectHistoryEntry],
+  );
+
+  const onShiftHistoryMonth = useCallback((diffMonths: number): void => {
+    setHistoryMonth((prev) => shiftMonthKey(prev, diffMonths));
   }, []);
 
   const copyAccessKeyToClipboard = useCallback(async (token: string): Promise<void> => {
@@ -732,7 +959,7 @@ export const App = () => {
       setAuthUser(null);
       setAccessTokenInput("");
       resetEntryState();
-      setHistory([]);
+      resetHistoryState();
       setToast(null);
       return;
     }
@@ -750,10 +977,10 @@ export const App = () => {
       setAuthUser(null);
       setAccessTokenInput("");
       resetEntryState();
-      setHistory([]);
+      resetHistoryState();
       setToast(null);
     }
-  }, [accessTokenTrim, resetEntryState]);
+  }, [accessTokenTrim, resetEntryState, resetHistoryState]);
 
   const onDeleteAccount = useCallback(async (): Promise<void> => {
     if (!canCallApi) {
@@ -780,14 +1007,14 @@ export const App = () => {
       setAuthUser(null);
       setAccessTokenInput("");
       resetEntryState();
-      setHistory([]);
+      resetHistoryState();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "unknown error";
       setToast({ kind: "error", message: `削除に失敗しました: ${errorMessage}` });
     } finally {
       setDeleteUserLoading(false);
     }
-  }, [accessTokenTrim, canCallApi, resetEntryState]);
+  }, [accessTokenTrim, canCallApi, resetEntryState, resetHistoryState]);
 
   useEffect(() => {
     if (!canCallApi) {
@@ -1067,9 +1294,9 @@ export const App = () => {
                 className="button button--ghost"
                 onClick={() => void refreshHistory()}
                 type="button"
-                disabled={!canCallApi || historyLoading}
+                disabled={!canCallApi || historyLoading || historyLoadingMore}
               >
-                {historyLoading ? "更新中..." : "履歴更新"}
+                {historyLoading || historyLoadingMore ? "更新中..." : "履歴更新"}
               </button>
             </div>
 
@@ -1099,6 +1326,9 @@ export const App = () => {
                       {draftMeta.cached ? "cached" : "fresh"}
                     </span>
                   ) : null}
+                  {draftMeta?.generation?.source ? (
+                    <span className="pill pill--neutral">genSource: {draftMeta.generation.source}</span>
+                  ) : null}
                 </div>
               </div>
 
@@ -1120,10 +1350,24 @@ export const App = () => {
               spellCheck={false}
             />
 
+            {generationKeywords.length > 0 ? (
+              <details className="details">
+                <summary>keywords ({generationKeywords.length})</summary>
+                <pre className="code">{generationKeywords.join(" / ")}</pre>
+              </details>
+            ) : null}
+
             {sourceFragmentIds.length > 0 ? (
               <details className="details">
                 <summary>source fragments ({sourceFragmentIds.length})</summary>
                 <pre className="code">{sourceFragmentIds.join("\n")}</pre>
+              </details>
+            ) : null}
+
+            {draftMeta?.generation?.userModel ? (
+              <details className="details">
+                <summary>used model (v{draftMeta.generation.userModel.version})</summary>
+                <pre className="code">{JSON.stringify(draftMeta.generation.userModel, null, 2)}</pre>
               </details>
             ) : null}
           </div>
@@ -1136,9 +1380,60 @@ export const App = () => {
             <div className="historyHeader">
               <h2 className="historyHeader__title">History</h2>
               <div className="historyHeader__meta">
-                <span className="pill pill--neutral">{history.length} entries</span>
+                <span className="pill pill--neutral">{history.length} loaded</span>
+                {historyHasMore ? <span className="pill pill--info">more</span> : null}
               </div>
             </div>
+
+            <section className="historyCalendar">
+              <div className="historyCalendar__header">
+                <button
+                  className="button button--ghost historyCalendar__navButton"
+                  type="button"
+                  onClick={() => onShiftHistoryMonth(-1)}
+                >
+                  {"<"}
+                </button>
+                <p className="historyCalendar__month">{historyMonthLabel}</p>
+                <button
+                  className="button button--ghost historyCalendar__navButton"
+                  type="button"
+                  onClick={() => onShiftHistoryMonth(1)}
+                >
+                  {">"}
+                </button>
+              </div>
+
+              <div className="historyCalendar__weekdays">
+                {calendarWeekdayLabels.map((label) => (
+                  <span className="historyCalendar__weekday" key={label}>
+                    {label}
+                  </span>
+                ))}
+              </div>
+
+              <ol className="historyCalendar__days">
+                {calendarDays.map((day) => {
+                  const isSelected = day.isoDate === selectedDate;
+                  const hasEntry = historyByDate.has(day.isoDate);
+
+                  return (
+                    <li key={day.isoDate}>
+                      <button
+                        className={`historyCalendarDay ${day.inCurrentMonth ? "" : "historyCalendarDay--outside"} ${
+                          isSelected ? "historyCalendarDay--selected" : ""
+                        } ${hasEntry ? "historyCalendarDay--withEntry" : ""}`}
+                        type="button"
+                        onClick={() => onSelectCalendarDate(day.isoDate)}
+                      >
+                        <span className="historyCalendarDay__number">{day.dayOfMonth}</span>
+                        {hasEntry ? <span className="historyCalendarDay__dot" /> : null}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
 
             <ol className="historyList">
               {history.map((entry) => (
@@ -1163,7 +1458,23 @@ export const App = () => {
               ))}
             </ol>
 
+            {history.length === 0 && !historyLoading ? (
+              <p className="hint">
+                履歴はまだありません。カレンダーで日付を選択して「下書きを生成/読み込み」を押すと作成できます。
+              </p>
+            ) : null}
             {historyLoading ? <p className="hint">loading...</p> : null}
+
+            <div className="actions actions--compact">
+              <button
+                className="button button--ghost"
+                type="button"
+                onClick={() => void onLoadOlderHistory()}
+                disabled={!canCallApi || historyLoading || historyLoadingMore || !historyHasMore || !historyCursorDate}
+              >
+                {historyLoadingMore ? "読み込み中..." : historyHasMore ? `さらに${historyPageSize}件読み込む` : "これ以上ありません"}
+              </button>
+            </div>
           </div>
 
           <div className="card">

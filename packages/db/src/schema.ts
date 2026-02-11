@@ -6,6 +6,9 @@ export type DraftGenerationStatus = (typeof draftGenerationStatusValues)[number]
 export const diaryEntryRevisionKindValues = ["generated", "saved", "confirmed"] as const;
 export type DiaryEntryRevisionKind = (typeof diaryEntryRevisionKindValues)[number];
 
+export const generationSourceValues = ["llm", "deterministic", "fallback"] as const;
+export type GenerationSource = (typeof generationSourceValues)[number];
+
 export interface DiaryRow {
   id: string;
   user_id: string;
@@ -13,6 +16,10 @@ export interface DiaryRow {
   status: DiaryStatus;
   generation_status: DraftGenerationStatus;
   generation_error: string | null;
+  generation_source: GenerationSource | null;
+  generation_user_model_json: string | null;
+  generation_source_fragment_ids_json: string;
+  generation_keywords_json: string;
   generated_text: string;
   final_text: string | null;
   created_at: string;

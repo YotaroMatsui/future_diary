@@ -2,6 +2,8 @@ export type DiaryStatus = "draft" | "confirmed";
 
 export type DraftGenerationStatus = "created" | "processing" | "failed" | "completed";
 
+export type GenerationSource = "llm" | "deterministic" | "fallback";
+
 export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
 export interface SourceFragment {
@@ -47,6 +49,10 @@ export interface DiaryEntry {
   status: DiaryStatus;
   generationStatus: DraftGenerationStatus;
   generationError: string | null;
+  generationSource: GenerationSource | null;
+  generationUserModelJson: string | null;
+  generationSourceFragmentIds: readonly string[];
+  generationKeywords: readonly string[];
   generatedText: string;
   finalText: string | null;
   createdAt: string;

@@ -249,15 +249,9 @@ flowchart TD
   - See: `packages/db/README.md`
   - See: `apps/api/README.md`
   - See: `docs/requirements-ssot.md`
-- [ISSUE][P1] 生成の透明性: `sourceFragmentIds` の永続化/返却に加え、生成時に利用した「モデルの内容/バージョン」「参照断片（style用/内容用）」を説明可能にする
-  - See: `apps/api/README.md`
-  - See: `apps/web/README.md`
 - [ISSUE][P1] 生成品質: deterministic/LLM のプロンプト/整形/ガードレールを改善し、評価用データと確認手順を整備する（要約化の抑制も含む）
   - See: `packages/core/README.md`
   - See: `docs/requirements-ssot.md`
-- [ISSUE][P1] 履歴 UI: カレンダー表示/ページング（30件上限の解消）と過去日の閲覧導線を強化する
-  - See: `docs/requirements-ssot.md`
-  - See: `apps/web/README.md`
 - [ISSUE][P2] Auth hardening: session 期限/失効/再発行（紛失時）や token の保存方式（localStorage依存の低減）を見直す
   - See: `apps/api/README.md`
   - See: `apps/web/README.md`
@@ -275,6 +269,9 @@ flowchart TD
 - `docs/prod-deploy-runbook` で本番デプロイ runbook（Workers/Pages/D1/Vectorize）を `infra/prod-deploy-runbook.md` に集約した。
 - web のサインイン導線を再設計し、初回 access key 発行後に必ず表示/コピーできるようにした。
 - user model（style/intent/preferences）の取得/更新/初期化 API と、Profile 編集 UI を追加し、生成に反映できるようにした。
+- 生成の透明性（used model / keywords / sourceFragmentIds）を API で永続化・返却し、web UI で表示できるようにした。
+- 履歴 UI に月ナビ付きカレンダー表示と「さらに30件読み込む」ページングを追加し、過去日の閲覧導線を強化した。
+- `0005_generation_transparency.sql` を追加し、`make db-migrate` / `make db-migrate-remote` 適用前提を明確化した。
 - `make dev-api` 実行時に local D1 migrations を自動適用し、起動直後の `no such table` を防いだ。
 
 </details>

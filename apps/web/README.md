@@ -1,6 +1,6 @@
 # apps/web
 
-`apps/web/src/App.tsx` は 未来日記の下書き生成（当日初回の自動生成）/編集/保存/確定/履歴閲覧 UI を提供し、`apps/api` の HTTP API と疎結合に通信する。通信境界は `apps/web/src/api.ts`、スタイルは `apps/web/src/app.css` に集約する。
+`apps/web/src/App.tsx` は 未来日記の下書き生成（当日初回の自動生成）/編集/保存/確定/履歴閲覧 UI（カレンダー表示/ページング含む）を提供し、`apps/api` の HTTP API と疎結合に通信する。通信境界は `apps/web/src/api.ts`、スタイルは `apps/web/src/app.css` に集約する。
 
 - パス: `apps/web/README.md`
 - 状態: Implemented
@@ -32,6 +32,7 @@
 - Vite/React の SPA エントリを提供。
 - 当日初回の「未来日記（下書き）」を生成して編集できる UI を提供。
 - 保存/確定/履歴閲覧を API 経由で操作する。
+- 履歴は月ナビ付きカレンダー + ページング（さらに30件）で過去日導線を提供する。
 - Profile（user model: style/intent/preferences）を取得/編集し、生成に反映する。
 
 <details><summary>根拠（Evidence）</summary>
@@ -190,6 +191,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
     - auth: `Authorization: Bearer <accessToken>`
     - request: `{ date, timezone }`
     - response: `{ ok, draft, meta }`（`meta.generationStatus` が `completed` になるまで polling）
+    - draft transparency: `draft.sourceFragmentIds`, `draft.keywords`, `meta.generation.userModel`
   - save:
     - request: `{ date, body }`
   - confirm:
@@ -198,6 +200,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
     - request: `{ date }`
   - list:
     - request: `{ onOrBeforeDate, limit }`
+    - usage: 初回読み込み（最新30件） + 旧日付ページング（`onOrBeforeDate` をカーソルとして継続取得）
 - 失敗セマンティクス:
   - fetch失敗時に toast を error 表示（status + API payload 整形）。
 - メインフロー:
@@ -270,12 +273,12 @@ flowchart TD
 
 ### [ISSUE]
 
-- [ISSUE][P1] 生成の透明性 UI: 生成に利用した「モデルの内容/バージョン」「参照断片（style用/内容用）」を表示できるようにする
-  - See: `apps/api/README.md`
-  - See: `README.md`
+- なし。
 
 ### [SUMMARY]
 
 - Web は 未来日記（下書き）の生成/編集/保存/確定/履歴閲覧 の UI と、Profile（user model）編集 UI を提供する。
+- 生成の透明性として、used model / keywords / source fragments を editor 下部に表示できる。
+- 履歴 UI は月ナビ付きカレンダーとページング（30件単位の追加読み込み）を提供する。
 
 </details>

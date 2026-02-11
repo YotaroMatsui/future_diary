@@ -12,6 +12,26 @@ interface D1DatabaseLike {
   prepare(query: string): D1StatementLike;
 }
 
+const parseJsonStringArray = (raw: string | null | undefined): string[] => {
+  const trimmed = (raw ?? "").trim();
+  if (trimmed.length === 0) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return [];
+  }
+
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed.filter((value): value is string => typeof value === "string");
+};
+
 const toDiaryEntry = (row: DiaryRow): DiaryEntry => ({
   id: row.id,
   userId: row.user_id,
@@ -19,6 +39,10 @@ const toDiaryEntry = (row: DiaryRow): DiaryEntry => ({
   status: row.status,
   generationStatus: row.generation_status,
   generationError: row.generation_error,
+  generationSource: row.generation_source,
+  generationUserModelJson: row.generation_user_model_json,
+  generationSourceFragmentIds: parseJsonStringArray(row.generation_source_fragment_ids_json),
+  generationKeywords: parseJsonStringArray(row.generation_keywords_json),
   generatedText: row.generated_text,
   finalText: row.final_text,
   createdAt: row.created_at,
@@ -67,7 +91,15 @@ export interface DiaryRepository {
   markDraftGenerationCreatedWithError(userId: string, date: string, errorMessage: string): Promise<DiaryEntry | null>;
   markDraftGenerationProcessing(userId: string, date: string): Promise<DiaryEntry | null>;
   markDraftGenerationFailed(userId: string, date: string, errorMessage: string): Promise<DiaryEntry | null>;
-  completeDraftGeneration(userId: string, date: string, generatedText: string): Promise<DiaryEntry | null>;
+  completeDraftGeneration(params: {
+    userId: string;
+    date: string;
+    generatedText: string;
+    generationSource: DiaryEntry["generationSource"];
+    generationUserModelJson: string | null;
+    generationSourceFragmentIds: readonly string[];
+    generationKeywords: readonly string[];
+  }): Promise<DiaryEntry | null>;
   updateFinalText(userId: string, date: string, finalText: string | null): Promise<DiaryEntry | null>;
   confirmEntry(userId: string, date: string): Promise<DiaryEntry | null>;
   deleteByUserAndDate(userId: string, date: string): Promise<boolean>;
@@ -78,7 +110,7 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
   const findByUserAndDate = async (userId: string, date: string): Promise<DiaryEntry | null> => {
     const row = await db
       .prepare(
-        "SELECT id, user_id, date, status, generation_status, generation_error, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date = ?",
+        "SELECT id, user_id, date, status, generation_status, generation_error, generation_source, generation_user_model_json, generation_source_fragment_ids_json, generation_keywords_json, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date = ?",
       )
       .bind(userId, date)
       .first<DiaryRow>();
@@ -89,7 +121,7 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
   const listRecentByUserBeforeDate = async (userId: string, beforeDate: string, limit: number): Promise<DiaryEntry[]> => {
     const response = await db
       .prepare(
-        "SELECT id, user_id, date, status, generation_status, generation_error, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date < ? ORDER BY date DESC LIMIT ?",
+        "SELECT id, user_id, date, status, generation_status, generation_error, generation_source, generation_user_model_json, generation_source_fragment_ids_json, generation_keywords_json, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date < ? ORDER BY date DESC LIMIT ?",
       )
       .bind(userId, beforeDate, limit)
       .all<DiaryRow>();
@@ -104,7 +136,7 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
   ): Promise<DiaryEntry[]> => {
     const response = await db
       .prepare(
-        "SELECT id, user_id, date, status, generation_status, generation_error, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date <= ? ORDER BY date DESC LIMIT ?",
+        "SELECT id, user_id, date, status, generation_status, generation_error, generation_source, generation_user_model_json, generation_source_fragment_ids_json, generation_keywords_json, generated_text, final_text, created_at, updated_at FROM diary_entries WHERE user_id = ? AND date <= ? ORDER BY date DESC LIMIT ?",
       )
       .bind(userId, onOrBeforeDate, limit)
       .all<DiaryRow>();
@@ -210,20 +242,36 @@ export const createDiaryRepository = (db: D1DatabaseLike): DiaryRepository => {
     return await findByUserAndDate(userId, date);
   };
 
-  const completeDraftGeneration = async (userId: string, date: string, generatedText: string): Promise<DiaryEntry | null> => {
-    const existing = await findByUserAndDate(userId, date);
+  const completeDraftGeneration = async (params: {
+    userId: string;
+    date: string;
+    generatedText: string;
+    generationSource: DiaryEntry["generationSource"];
+    generationUserModelJson: string | null;
+    generationSourceFragmentIds: readonly string[];
+    generationKeywords: readonly string[];
+  }): Promise<DiaryEntry | null> => {
+    const existing = await findByUserAndDate(params.userId, params.date);
     if (existing === null) {
       return null;
     }
 
     await db
       .prepare(
-        "UPDATE diary_entries SET generation_status = 'completed', generation_error = NULL, generated_text = ?, updated_at = datetime('now') WHERE user_id = ? AND date = ?",
+        "UPDATE diary_entries SET generation_status = 'completed', generation_error = NULL, generation_source = ?, generation_user_model_json = ?, generation_source_fragment_ids_json = ?, generation_keywords_json = ?, generated_text = ?, updated_at = datetime('now') WHERE user_id = ? AND date = ?",
       )
-      .bind(generatedText, userId, date)
+      .bind(
+        params.generationSource,
+        params.generationUserModelJson,
+        JSON.stringify([...params.generationSourceFragmentIds]),
+        JSON.stringify([...params.generationKeywords]),
+        params.generatedText,
+        params.userId,
+        params.date,
+      )
       .run();
 
-    return await findByUserAndDate(userId, date);
+    return await findByUserAndDate(params.userId, params.date);
   };
 
   const updateFinalText = async (userId: string, date: string, finalText: string | null): Promise<DiaryEntry | null> => {

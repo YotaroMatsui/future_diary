@@ -370,13 +370,13 @@ curl -X POST http://127.0.0.1:8787/v1/user/delete \
   - Queue consumer / DO lock。
 - トレードオフ:
   - Vectorize retrieval は optional（`AI` + `VECTOR_INDEX` binding がある場合のみ使用し、失敗時は D1 の直近日記へ fallback）。
-  - `sourceFragmentIds` は永続化していない（cache hit の場合は `[]` を返す）。
+  - 生成の透明性（`sourceFragmentIds` / `keywords` / user model snapshot）は `diary_entries.generation_*` に永続化し、poll/cached でも返却する。
   - local/test 等で Queue binding が無い場合は同期生成へフォールバックする。
 
 ```mermaid
 flowchart TD
   EP["POST /v1/future-diary/draft"] -->|"contract"| ZD["draftRequestSchema"]
-  EP -->|"boundary(I/O)"| D1["D1 (diary_entries + generation_status)"]
+  EP -->|"boundary(I/O)"| D1["D1 (diary_entries + generation_status + generation_meta)"]
   EP -->|"enqueue"| Q["Queue (future-diary-generation)"]
   EP -->|"response(status)"| HTTP["HTTP response"]
 
@@ -401,6 +401,9 @@ flowchart TD
 - [E8] `apps/api/src/generationQueueConsumer.ts:99` — DO lock acquire。
 - [E9] `apps/api/src/futureDiaryDraftGeneration.ts:132` — OpenAI call（optional）。
 - [E10] `apps/api/src/futureDiaryDraftGeneration.ts:182` — deterministic/fallback call。
+- [E11] `packages/db/src/migrations/0005_generation_transparency.sql:1` — generation transparency columns。
+- [E12] `packages/db/src/repository.ts:261` — completed generation persists transparency fields。
+- [E13] `apps/api/src/index.ts:514` — API returns `keywords` / `sourceFragmentIds` / `generation.userModel` even on cached/poll。
 </details>
 
 ## 品質
@@ -452,11 +455,12 @@ flowchart TD
 
 ### [ISSUE]
 
-- [ISSUE][P1] 生成の透明性: poll/cached でも説明可能にするため、生成時に利用した user model と参照断片（keywords / sourceFragmentIds）を永続化して返却する（UIで表示できるようにする） / 根拠: `apps/api/src/index.ts:319`, `apps/api/src/index.ts:502`, `apps/api/src/futureDiaryDraftGeneration.ts:65`
+- なし。
 
 ### [SUMMARY]
 
 - API境界は draft 生成と D1 cache まで含めて成立している。
 - diary CRUD（取得/保存/確定/履歴）は D1 の最小 update/list を追加して成立している。
+- poll/cached でも説明可能にするため、生成時に利用した user model snapshot / keywords / sourceFragmentIds を永続化して返却できるようにした。
 
 </details>

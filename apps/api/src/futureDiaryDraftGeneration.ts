@@ -1,6 +1,7 @@
 import {
   buildFallbackFutureDiaryDraft,
   buildFutureDiaryDraft,
+  deriveKeywords,
   buildFutureDiaryDraftLlmSystemPrompt,
   buildFutureDiaryDraftLlmUserPrompt,
   futureDiaryDraftBodyJsonSchema,
@@ -34,6 +35,7 @@ export type GeneratedDraft = {
     title: string;
     body: string;
     sourceFragmentIds: readonly string[];
+    keywords: readonly string[];
   };
   sourceEntriesToIndex: readonly { id: string; date: string; text: string }[];
 };
@@ -111,8 +113,11 @@ export const generateFutureDiaryDraft = async (params: {
     text: truncateForPrompt(fragment.text, 600),
   }));
 
+  const keywordLimit = Math.min(10, Math.max(3, styleHints.maxParagraphs * 3));
+
   let source: DraftGenerationSource = "deterministic";
-  let draft: { title: string; body: string; sourceFragmentIds: readonly string[] } | null = null;
+  let draft: { title: string; body: string; sourceFragmentIds: readonly string[]; keywords: readonly string[] } | null =
+    null;
 
   const openAiApiKey = params.env.OPENAI_API_KEY;
   const openAiBaseUrl = params.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
@@ -173,6 +178,7 @@ export const generateFutureDiaryDraft = async (params: {
           title: `${date} の未来日記`,
           body: parsedBody.data.body,
           sourceFragmentIds: llmFragments.map((fragment) => fragment.id),
+          keywords: deriveKeywords(llmFragments, keywordLimit),
         };
       }
     }
@@ -190,10 +196,21 @@ export const generateFutureDiaryDraft = async (params: {
 
     if (draftResult.ok) {
       source = "deterministic";
-      draft = draftResult.value;
+      const fragmentById = new Map(recentFragments.map((fragment) => [fragment.id, fragment] as const));
+      const usedFragments = draftResult.value.sourceFragmentIds
+        .map((id) => fragmentById.get(id))
+        .filter((fragment): fragment is NonNullable<typeof fragment> => fragment !== undefined);
+
+      draft = {
+        ...draftResult.value,
+        keywords: deriveKeywords(usedFragments, keywordLimit),
+      };
     } else if (draftResult.error.type === "NO_SOURCE") {
       source = "fallback";
-      draft = buildFallbackFutureDiaryDraft({ date, styleHints, draftIntent });
+      draft = {
+        ...buildFallbackFutureDiaryDraft({ date, styleHints, draftIntent }),
+        keywords: [],
+      };
     } else {
       // invalid style hints etc: treat as unexpected but expose as error to retry.
       throw new Error(draftResult.error.message);

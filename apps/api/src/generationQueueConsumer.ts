@@ -1,5 +1,5 @@
 import { createDiaryRepository, createDiaryRevisionRepository, createUserRepository } from "@future-diary/db";
-import { defaultUserModel, parseUserModelJson } from "@future-diary/core";
+import { defaultUserModel, parseUserModelJson, serializeUserModelJson } from "@future-diary/core";
 import { upsertVectorizeSearchDocumentsWithWorkersAi } from "@future-diary/vector";
 import { acquireDraftGenerationLock, releaseDraftGenerationLock } from "./draftGenerationLock";
 import { generateFutureDiaryDraft } from "./futureDiaryDraftGeneration";
@@ -75,6 +75,7 @@ const processFutureDraftGenerate = async (params: {
   const user = await userRepo.findById(userId);
   const parsedModel = parseUserModelJson(user?.preferencesJson);
   const userModel = parsedModel.ok ? parsedModel.value : defaultUserModel;
+  const generationUserModelJson = serializeUserModelJson(userModel);
 
   if (!parsedModel.ok) {
     console.warn("User model parse failed; falling back to default", {
@@ -131,7 +132,15 @@ const processFutureDraftGenerate = async (params: {
       safetyIdentifier,
     });
 
-    const completed = await diaryRepo.completeDraftGeneration(userId, date, generated.draft.body);
+    const completed = await diaryRepo.completeDraftGeneration({
+      userId,
+      date,
+      generatedText: generated.draft.body,
+      generationSource: generated.source,
+      generationUserModelJson,
+      generationSourceFragmentIds: generated.draft.sourceFragmentIds,
+      generationKeywords: generated.draft.keywords,
+    });
     if (!completed) {
       throw new Error("Draft generation completed but could not be persisted");
     }

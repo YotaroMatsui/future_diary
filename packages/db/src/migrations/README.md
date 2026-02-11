@@ -34,6 +34,7 @@
 - [E2] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1`
 - [E3] `packages/db/src/migrations/0003_auth_sessions.sql:1`
 - [E4] `packages/db/src/migrations/0004_generation_status.sql:1`
+- [E5] `packages/db/src/migrations/0005_generation_transparency.sql:1`
 </details>
 
 ## スコープ
@@ -43,6 +44,7 @@
   - `0002_diary_entry_revisions.sql`
   - `0003_auth_sessions.sql`
   - `0004_generation_status.sql`
+  - `0005_generation_transparency.sql`
 - 対象外（Non-goals）:
   - query layer
 - 委譲（See）:
@@ -81,6 +83,7 @@
     ├── 0002_diary_entry_revisions.sql # diary entry revision snapshots
     ├── 0003_auth_sessions.sql   # auth session（bearer token）スキーマ
     ├── 0004_generation_status.sql # generation status/error columns
+    ├── 0005_generation_transparency.sql # generation transparency columns
     └── README.md                # この文書
 ```
 
@@ -101,6 +104,7 @@
 | `0002_diary_entry_revisions.sql` | SQL contract | `0002_diary_entry_revisions.sql` | revision 追加 | `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` |
 | `0003_auth_sessions.sql` | SQL contract | `0003_auth_sessions.sql` | auth session 追加 | `packages/db/src/migrations/0003_auth_sessions.sql:1` |
 | `0004_generation_status.sql` | SQL contract | `0004_generation_status.sql` | generation status 追加 | `packages/db/src/migrations/0004_generation_status.sql:1` |
+| `0005_generation_transparency.sql` | SQL contract | `0005_generation_transparency.sql` | generation transparency 追加 | `packages/db/src/migrations/0005_generation_transparency.sql:1` |
 
 ### 使い方（必須）
 
@@ -130,6 +134,7 @@ bun run --cwd packages/db migrate-remote
 - `0002_diary_entry_revisions.sql`
 - `0003_auth_sessions.sql`
 - `0004_generation_status.sql`
+- `0005_generation_transparency.sql`
 
 ### 検証入口（CI / ローカル）
 
@@ -151,6 +156,7 @@ bun run --cwd packages/db migrate-remote
 
 - データ形状:
   - users, diary_entries, diary_entry_revisions, auth_sessions table
+  - diary_entries に generation transparency columns（source / user_model_json / source_fragment_ids_json / keywords_json）
 - 失敗セマンティクス:
   - SQL errorで失敗
 - メインフロー:
@@ -167,6 +173,7 @@ flowchart TD
   SQL2["0002_diary_entry_revisions.sql"] -->|"contract"| DR["diary_entry_revisions"]
   SQL3["0003_auth_sessions.sql"] -->|"contract"| AS["auth_sessions"]
   SQL4["0004_generation_status.sql"] -->|"contract"| GS["diary_entries.generation_status"]
+  SQL5["0005_generation_transparency.sql"] -->|"contract"| GT["diary_entries.generation_*"]
 ```
 
 <details><summary>根拠（Evidence）</summary>
@@ -176,6 +183,7 @@ flowchart TD
 - [E3] `packages/db/src/migrations/0002_diary_entry_revisions.sql:1`
 - [E4] `packages/db/src/migrations/0003_auth_sessions.sql:1`
 - [E5] `packages/db/src/migrations/0004_generation_status.sql:1`
+- [E6] `packages/db/src/migrations/0005_generation_transparency.sql:1`
 </details>
 
 ## 品質
@@ -207,7 +215,7 @@ flowchart TD
 
 - [OPEN][TODO] 追加 migration 設計
   - 背景: 今後の diary仕様拡張
-  - 現状: 初期版 + revision + auth_sessions 追加まで
+  - 現状: 初期版 + revision + auth_sessions + generation status + generation transparency 追加まで
   - 受入条件:
     - 変更ごとに番号付き migration 追加
   - 根拠:

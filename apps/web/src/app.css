@@ -283,6 +283,10 @@ body::before {
   gap: 10px;
 }
 
+.actions--compact {
+  margin-top: 10px;
+}
+
 .button {
   border-radius: 999px;
   border: 1px solid rgba(16, 19, 24, 0.22);
@@ -489,8 +493,110 @@ body::before {
   padding: 0;
   display: grid;
   gap: 10px;
-  max-height: calc(100vh - 190px);
+  max-height: calc(100vh - 420px);
   overflow: auto;
+}
+
+.historyCalendar {
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(16, 19, 24, 0.12);
+  background: rgba(255, 255, 255, 0.56);
+  margin-bottom: 10px;
+}
+
+.historyCalendar__header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.historyCalendar__month {
+  margin: 0;
+  text-align: center;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.historyCalendar__navButton {
+  padding: 6px 10px;
+  min-width: 38px;
+}
+
+.historyCalendar__weekdays {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.historyCalendar__weekday {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+}
+
+.historyCalendar__days {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.historyCalendarDay {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  border: 1px solid rgba(16, 19, 24, 0.1);
+  background: rgba(255, 255, 255, 0.68);
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.historyCalendarDay:hover {
+  transform: translateY(-1px);
+  border-color: rgba(15, 118, 110, 0.34);
+}
+
+.historyCalendarDay--outside {
+  color: rgba(16, 19, 24, 0.42);
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.historyCalendarDay--selected {
+  border-color: rgba(15, 118, 110, 0.56);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+}
+
+.historyCalendarDay--withEntry {
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.historyCalendarDay__number {
+  line-height: 1;
+}
+
+.historyCalendarDay__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.82);
 }
 
 .historyEntry {

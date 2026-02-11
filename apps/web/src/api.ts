@@ -131,6 +131,7 @@ export type FutureDiaryDraftResponse = {
     title: string;
     body: string;
     sourceFragmentIds: readonly string[];
+    keywords: readonly string[];
   };
   meta: {
     userId: string;
@@ -140,6 +141,12 @@ export type FutureDiaryDraftResponse = {
     generationError: string | null;
     cached: boolean;
     source: "llm" | "deterministic" | "fallback" | "cached" | "queued";
+    generation?: {
+      source: "llm" | "deterministic" | "fallback" | null;
+      userModel: UserModel | null;
+      keywords: readonly string[];
+      sourceFragmentIds: readonly string[];
+    };
     pollAfterMs: number;
   };
 };

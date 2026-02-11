@@ -4,7 +4,7 @@ import {
   createDiaryRevisionRepository,
   createUserRepository,
 } from "@future-diary/db";
-import { defaultUserModel, parseUserModelInput, parseUserModelJson, serializeUserModelJson } from "@future-diary/core";
+import { defaultUserModel, parseUserModelInput, parseUserModelJson, serializeUserModelJson, type UserModelV1 } from "@future-diary/core";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
@@ -51,6 +51,27 @@ const authSessionCreateRequestSchema = z.object({
 const userModelUpdateRequestSchema = z.object({
   model: z.unknown(),
 });
+
+const parseStoredUserModelSnapshotJson = (json: string | null): UserModelV1 | null => {
+  if (json === null) {
+    return null;
+  }
+
+  const trimmed = json.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    return null;
+  }
+
+  const result = parseUserModelInput(parsed);
+  return result.ok ? result.value : null;
+};
 
 type WorkerBindings = {
   APP_ENV?: string;
@@ -361,6 +382,7 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
   const user = await userRepo.findById(userId);
   const parsedModel = parseUserModelJson(user?.preferencesJson);
   const userModel = parsedModel.ok ? parsedModel.value : defaultUserModel;
+  const generationUserModelJson = serializeUserModelJson(userModel);
 
   if (!parsedModel.ok) {
     console.warn("User model parse failed; falling back to default", {
@@ -429,7 +451,15 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
           });
 
           source = generated.source;
-          const completed = await diaryRepo.completeDraftGeneration(userId, date, generated.draft.body);
+          const completed = await diaryRepo.completeDraftGeneration({
+            userId,
+            date,
+            generatedText: generated.draft.body,
+            generationSource: generated.source,
+            generationUserModelJson,
+            generationSourceFragmentIds: generated.draft.sourceFragmentIds,
+            generationKeywords: generated.draft.keywords,
+          });
           if (!completed) {
             throw new Error("Draft generation completed but could not be persisted");
           }
@@ -484,7 +514,8 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
     draft: {
       title: `${date} の未来日記`,
       body: entry.finalText ?? entry.generatedText,
-      sourceFragmentIds: [],
+      sourceFragmentIds: entry.generationSourceFragmentIds,
+      keywords: entry.generationKeywords,
     },
     meta: {
       userId,
@@ -494,6 +525,12 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
       generationError: entry.generationError,
       cached: existedBefore,
       source,
+      generation: {
+        source: entry.generationSource,
+        userModel: parseStoredUserModelSnapshotJson(entry.generationUserModelJson),
+        keywords: entry.generationKeywords,
+        sourceFragmentIds: entry.generationSourceFragmentIds,
+      },
       pollAfterMs: entry.generationStatus === "completed" ? 0 : 1500,
     },
   });

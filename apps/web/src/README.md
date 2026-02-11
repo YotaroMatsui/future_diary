@@ -1,6 +1,6 @@
 # apps/web/src
 
-`apps/web/src` は 未来日記 UI の実装を保持し、`main.tsx` で起動、`App.tsx` で生成/編集/保存/確定/履歴閲覧を操作し、`api.ts` で通信境界、`app.css` でスタイルを提供する。
+`apps/web/src` は 未来日記 UI の実装を保持し、`main.tsx` で起動、`App.tsx` で生成/編集/保存/確定/履歴閲覧（カレンダー表示/ページング含む）を操作し、`api.ts` で通信境界、`app.css` でスタイルを提供する。
 
 - パス: `apps/web/src/README.md`
 - 状態: Implemented
@@ -174,6 +174,7 @@ import { App } from "./App";
     - auth: `Authorization: Bearer <accessToken>`
     - request: `{ date, timezone }`
     - response: `{ ok, draft, meta }`（`meta.generationStatus` が `completed` になるまで polling）
+    - transparency: `draft.sourceFragmentIds`, `draft.keywords`, `meta.generation.userModel`
   - save:
     - request: `{ date, body }`
   - confirm:
@@ -182,6 +183,7 @@ import { App } from "./App";
     - request: `{ date }`
   - list:
     - request: `{ onOrBeforeDate, limit }`
+    - usage: 初回読み込み（最新30件） + 旧日付ページング（`onOrBeforeDate` カーソル）
 - 失敗セマンティクス:
   - 非200は例外として扱い、UI は toast に表示する。
 - メインフロー:
@@ -252,5 +254,7 @@ flowchart TD
 ### [SUMMARY]
 
 - src は 未来日記 UI（生成/編集/保存/確定/履歴）の実装を保持する。
+- 生成の透明性として、used model / keywords / source fragments を表示できる。
+- 履歴 UI は月ナビ付きカレンダーとページング（30件単位の追加読み込み）を提供する。
 
 </details>
