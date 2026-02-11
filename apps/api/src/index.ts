@@ -371,24 +371,9 @@ app.get("/v1/auth/me", requireAuth, async (context) => {
 });
 
 app.post("/v1/auth/logout", requireAuth, async (context) => {
-  const auth = context.get("auth") as AuthContext;
-
-  if (!context.env?.DB) {
-    return context.json(
-      {
-        ok: false,
-        error: {
-          type: "MISSING_BINDING",
-          message: "D1 binding 'DB' is required",
-        },
-      },
-      500,
-    );
-  }
-
-  const sessionRepo = createAuthSessionRepository(context.env.DB);
-  await sessionRepo.deleteSession(auth.sessionId);
-
+  // Keep access keys reusable across devices/sessions.
+  // Web logout should clear local credentials, not revoke the server-side key.
+  context.get("auth");
   return context.json({ ok: true });
 });
 

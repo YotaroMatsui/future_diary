@@ -227,7 +227,7 @@ curl https://<wrangler出力のURL>/health
 | `GET /health`                 | HTTP route     | `src/index.ts` | 稼働確認         | `apps/api/src/index.ts:194` |
 | `POST /v1/auth/session`       | HTTP route     | `src/index.ts` | session 作成     | `apps/api/src/index.ts:202` |
 | `GET /v1/auth/me`             | HTTP route     | `src/index.ts` | session 検証     | `apps/api/src/index.ts:255` |
-| `POST /v1/auth/logout`        | HTTP route     | `src/index.ts` | session 破棄     | `apps/api/src/index.ts:297` |
+| `POST /v1/auth/logout`        | HTTP route     | `src/index.ts` | ローカル logout シグナル（server key は保持） | `apps/api/src/index.ts:373` |
 | `GET /v1/user/model`          | HTTP route     | `src/index.ts` | user model 取得  | `apps/api/src/index.ts:502` |
 | `POST /v1/user/model`         | HTTP route     | `src/index.ts` | user model 更新  | `apps/api/src/index.ts:541` |
 | `POST /v1/user/model/reset`   | HTTP route     | `src/index.ts` | user model 初期化 | `apps/api/src/index.ts:605` |

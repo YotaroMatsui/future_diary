@@ -529,6 +529,42 @@ describe("future-diary-api", () => {
     expect(meJson.user?.timezone).toBe("Asia/Tokyo");
   });
 
+  test("POST /v1/auth/logout keeps access token reusable for later login", async () => {
+    const db = createInMemoryD1();
+    const env = { DB: db as unknown as D1Database };
+    const accessToken = await createAuthSession(env);
+
+    const beforeResponse = await app.request(
+      "/v1/auth/me",
+      {
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+    expect(beforeResponse.status).toBe(200);
+
+    const logoutResponse = await app.request(
+      "/v1/auth/logout",
+      {
+        method: "POST",
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+    const logoutJson = (await logoutResponse.json()) as { ok?: boolean };
+    expect(logoutResponse.status).toBe(200);
+    expect(logoutJson.ok).toBe(true);
+
+    const afterResponse = await app.request(
+      "/v1/auth/me",
+      {
+        headers: authJsonHeaders(accessToken),
+      },
+      env,
+    );
+    expect(afterResponse.status).toBe(200);
+  });
+
   test("POST /v1/future-diary/draft returns generated draft and caches it", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };

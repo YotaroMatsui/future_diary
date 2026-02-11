@@ -119,7 +119,7 @@
 | `fetchUserModel`        | function  | `src/api.ts`  | user model 取得 | `apps/web/src/api.ts:195` |
 | `updateUserModel`       | function  | `src/api.ts`  | user model 更新 | `apps/web/src/api.ts:203` |
 | `resetUserModel`        | function  | `src/api.ts`  | user model 初期化 | `apps/web/src/api.ts:211` |
-| `logout`                | function  | `src/api.ts`  | session 破棄 | `apps/web/src/api.ts:214` |
+| `logout`                | function  | `src/api.ts`  | ローカル logout シグナル送信（server key は保持） | `apps/web/src/api.ts:214` |
 | `saveDiaryEntry`        | function  | `src/api.ts`  | diary 保存 | `apps/web/src/api.ts:232` |
 | `confirmDiaryEntry`     | function  | `src/api.ts`  | diary 確定 | `apps/web/src/api.ts:241` |
 | `listDiaryEntries`      | function  | `src/api.ts`  | 履歴取得 | `apps/web/src/api.ts:253` |
