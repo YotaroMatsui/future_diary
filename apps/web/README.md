@@ -273,14 +273,6 @@ flowchart TD
 
 ### [ISSUE]
 
-- [ISSUE][P1] モバイル向けレイアウト最適化（320-430px）: `layout` / `appHeader` / `controls` / `actions` / `sidebar` の優先度を再設計し、1画面内で主要操作（生成・保存・確定）に到達しやすくする
-  - See: `apps/web/src/App.tsx`
-  - See: `apps/web/src/app.css`
-- [ISSUE][P1] タッチ操作の可用性を改善する: カレンダー日付セルと主要ボタンのタップ領域を 44px 以上に揃え、hover 依存の操作感を touch/keyboard 操作でも同等にする
-  - See: `apps/web/src/App.tsx`
-  - See: `apps/web/src/app.css`
-- [ISSUE][P1] モバイル viewport 対応を強化する: `100vh` 依存の高さ計算を見直し、iOS Safari の dynamic toolbar / safe-area / キーボード表示時でも履歴と編集欄が隠れないようにする
-  - See: `apps/web/src/app.css`
 - [ISSUE][P1] モバイル E2E を追加する: Playwright (WebKit/Chromium) のスマホ viewport で、ログイン -> 下書き生成 -> 編集保存 -> 確定 -> 履歴再読込 を自動検証する
   - See: `apps/web/e2e-smoke.test.ts`
 - [ISSUE][P1] component 分割ルールを定義する: `App.tsx` の責務を `auth` / `editor` / `history` / `account` の feature 単位へ分離し、`components/` と `hooks/` の配置規約・命名規約・state 境界（local/server/global）を README で SSOT 化する

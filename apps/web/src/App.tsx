@@ -1189,7 +1189,7 @@ export const App = () => {
               </div>
             </div>
 
-            <div className="actions">
+            <div className="actions actions--primary">
               <button
                 className="button"
                 onClick={() => void copyAccessKeyToClipboard(issuedAccessToken)}
@@ -1253,7 +1253,7 @@ export const App = () => {
               </label>
             </div>
 
-            <div className="actions">
+            <div className="actions actions--primary">
               <button
                 className="button"
                 onClick={() => void loadDraft({ date: selectedDate, reason: "manual" })}
@@ -1338,7 +1338,7 @@ export const App = () => {
             </div>
 
             <textarea
-              className="textarea"
+              className="textarea textarea--entry"
               value={body}
               disabled={draftLoading}
               onChange={(event) => {

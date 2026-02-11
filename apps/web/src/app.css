@@ -12,6 +12,10 @@
   --danger: #b42318;
   --danger-ink: #3a0b07;
   --focus: rgba(15, 118, 110, 0.24);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
 * {
@@ -71,7 +75,10 @@ body::before {
 .app {
   max-width: 1120px;
   margin: 0 auto;
-  padding: 28px 16px 48px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: calc(28px + var(--safe-top)) calc(16px + var(--safe-right)) calc(48px + var(--safe-bottom))
+    calc(16px + var(--safe-left));
   animation: rise 520ms ease-out both;
 }
 
@@ -169,7 +176,8 @@ body::before {
   z-index: 50;
   display: grid;
   place-items: center;
-  padding: 18px;
+  padding: calc(18px + var(--safe-top)) calc(18px + var(--safe-right)) calc(18px + var(--safe-bottom))
+    calc(18px + var(--safe-left));
   background: rgba(16, 19, 24, 0.34);
   backdrop-filter: blur(7px);
 }
@@ -237,6 +245,7 @@ body::before {
 
 .input {
   width: 100%;
+  min-height: 44px;
   border-radius: 12px;
   border: 1px solid rgba(16, 19, 24, 0.18);
   background: rgba(255, 255, 255, 0.75);
@@ -281,6 +290,7 @@ body::before {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  align-items: stretch;
 }
 
 .actions--compact {
@@ -288,6 +298,11 @@ body::before {
 }
 
 .button {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
   border: 1px solid rgba(16, 19, 24, 0.22);
   background: rgba(15, 118, 110, 0.14);
@@ -296,6 +311,7 @@ body::before {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   font-size: 14px;
   cursor: pointer;
+  touch-action: manipulation;
   transition:
     transform 120ms ease,
     background-color 140ms ease,
@@ -312,6 +328,12 @@ body::before {
   opacity: 0.55;
   cursor: not-allowed;
   transform: none;
+}
+
+.button:focus-visible {
+  outline: none;
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 4px var(--focus);
 }
 
 .button--secondary {
@@ -433,11 +455,22 @@ body::before {
   color: var(--ink);
   outline: none;
   resize: vertical;
+  scroll-margin-bottom: calc(18px + var(--safe-bottom));
 }
 
 .textarea:focus {
   border-color: rgba(15, 118, 110, 0.55);
   box-shadow: 0 0 0 4px var(--focus);
+}
+
+.textarea--entry {
+  min-height: clamp(240px, 34vh, 460px);
+}
+
+@supports (height: 1dvh) {
+  .textarea--entry {
+    min-height: clamp(240px, 34dvh, 460px);
+  }
 }
 
 .details {
@@ -493,8 +526,10 @@ body::before {
   padding: 0;
   display: grid;
   gap: 10px;
-  max-height: calc(100vh - 420px);
+  max-height: clamp(220px, calc(100vh - 420px), 560px);
+  max-height: clamp(220px, calc(100dvh - 420px - var(--safe-top) - var(--safe-bottom)), 560px);
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .historyCalendar {
@@ -503,6 +538,8 @@ body::before {
   border: 1px solid rgba(16, 19, 24, 0.12);
   background: rgba(255, 255, 255, 0.56);
   margin-bottom: 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .historyCalendar__header {
@@ -522,8 +559,9 @@ body::before {
 }
 
 .historyCalendar__navButton {
-  padding: 6px 10px;
-  min-width: 38px;
+  padding: 8px 12px;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .historyCalendar__weekdays {
@@ -552,6 +590,8 @@ body::before {
 .historyCalendarDay {
   width: 100%;
   aspect-ratio: 1;
+  min-width: 44px;
+  min-height: 44px;
   border-radius: 10px;
   border: 1px solid rgba(16, 19, 24, 0.1);
   background: rgba(255, 255, 255, 0.68);
@@ -572,6 +612,12 @@ body::before {
 .historyCalendarDay:hover {
   transform: translateY(-1px);
   border-color: rgba(15, 118, 110, 0.34);
+}
+
+.historyCalendarDay:focus-visible {
+  outline: none;
+  border-color: rgba(15, 118, 110, 0.56);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18);
 }
 
 .historyCalendarDay--outside {
@@ -601,6 +647,7 @@ body::before {
 
 .historyEntry {
   width: 100%;
+  min-height: 44px;
   text-align: left;
   padding: 10px 10px;
   border-radius: 14px;
@@ -617,6 +664,12 @@ body::before {
   transform: translateY(-1px);
   border-color: rgba(15, 118, 110, 0.32);
   background: rgba(255, 255, 255, 0.72);
+}
+
+.historyEntry:focus-visible {
+  outline: none;
+  border-color: rgba(15, 118, 110, 0.55);
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.14);
 }
 
 .historyEntry--active {
@@ -644,7 +697,64 @@ body::before {
   line-height: 1.4;
 }
 
+@media (hover: none) {
+  .button:hover {
+    transform: none;
+    background: rgba(15, 118, 110, 0.14);
+    border-color: rgba(16, 19, 24, 0.22);
+  }
+
+  .button--secondary:hover {
+    background: rgba(2, 132, 199, 0.12);
+    border-color: rgba(16, 19, 24, 0.22);
+  }
+
+  .button--danger:hover {
+    background: rgba(180, 35, 24, 0.12);
+    border-color: rgba(16, 19, 24, 0.22);
+  }
+
+  .historyCalendarDay:hover {
+    transform: none;
+    border-color: rgba(16, 19, 24, 0.1);
+  }
+
+  .historyEntry:hover {
+    transform: none;
+    border-color: rgba(16, 19, 24, 0.14);
+    background: rgba(255, 255, 255, 0.62);
+  }
+
+  .button:active:not(:disabled) {
+    transform: translateY(1px);
+    background: rgba(15, 118, 110, 0.24);
+  }
+
+  .historyCalendarDay:active {
+    transform: translateY(1px);
+    border-color: rgba(15, 118, 110, 0.42);
+  }
+
+  .historyEntry:active {
+    transform: translateY(1px);
+    border-color: rgba(15, 118, 110, 0.42);
+  }
+}
+
 @media (max-width: 980px) {
+  .app {
+    padding: calc(22px + var(--safe-top)) calc(14px + var(--safe-right)) calc(34px + var(--safe-bottom))
+      calc(14px + var(--safe-left));
+  }
+
+  .appHeader__brand {
+    min-width: 0;
+  }
+
+  .appHeader__meta {
+    justify-content: flex-start;
+  }
+
   .layout {
     grid-template-columns: 1fr;
   }
@@ -660,10 +770,111 @@ body::before {
   .historyList {
     max-height: none;
   }
+
+  .historyHeader {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .historyEntry__top {
+    flex-wrap: wrap;
+  }
 }
 
 @media (max-width: 720px) {
+  .appHeader {
+    padding: 12px;
+  }
+
+  .appHeader__title {
+    font-size: 22px;
+  }
+
+  .appHeader__meta {
+    width: 100%;
+  }
+
+  .appHeader__meta .pill {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
   .controls {
     grid-template-columns: 1fr;
+  }
+
+  .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .actions > .button {
+    width: 100%;
+  }
+
+  .actions--primary {
+    grid-template-columns: 1fr;
+  }
+
+  .secretRow {
+    grid-template-columns: 1fr;
+  }
+
+  .historyCalendar__weekdays,
+  .historyCalendar__days {
+    min-width: 320px;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 430px) {
+  .app {
+    padding: calc(16px + var(--safe-top)) calc(10px + var(--safe-right)) calc(24px + var(--safe-bottom))
+      calc(10px + var(--safe-left));
+  }
+
+  .layout,
+  .main,
+  .sidebar,
+  .onboarding {
+    gap: 10px;
+  }
+
+  .card,
+  .card--editor {
+    padding: 12px;
+  }
+
+  .appHeader__title {
+    font-size: 20px;
+  }
+
+  .appHeader__subtitle {
+    font-size: 13px;
+  }
+
+  .actions {
+    grid-template-columns: 1fr;
+  }
+
+  .historyCalendar {
+    padding: 8px;
+  }
+
+  .historyCalendar__month {
+    font-size: 12px;
+  }
+
+  .textarea--entry {
+    min-height: clamp(220px, 38vh, 320px);
+  }
+}
+
+@supports (height: 1dvh) {
+  @media (max-width: 430px) {
+    .textarea--entry {
+      min-height: clamp(220px, 38dvh, 320px);
+    }
   }
 }
