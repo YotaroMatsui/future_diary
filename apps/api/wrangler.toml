@@ -35,4 +35,4 @@ bindings = [{ name = "GENERATION_LOCK", class_name = "DraftGenerationLock" }]
 
 [[migrations]]
 tag = "v1"
-new_classes = ["DraftGenerationLock"]
+new_sqlite_classes = ["DraftGenerationLock"]
