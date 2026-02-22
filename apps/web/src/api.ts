@@ -4,8 +4,39 @@ export interface HealthResponse {
   service: string;
 }
 
+const isLikelyLocalApiUrl = (url: string): boolean => {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  return parsed.port === "8787" && (hostname === "127.0.0.1" || hostname === "localhost");
+};
+
+const toNetworkErrorMessage = (url: string, error: unknown): string => {
+  const reason = error instanceof Error ? error.message : "Network request failed";
+  if (!isLikelyLocalApiUrl(url)) {
+    return reason;
+  }
+
+  return [
+    reason,
+    `Request URL: ${url}`,
+    "Local API is unreachable. Run `make dev-api` and confirm `http://127.0.0.1:8787/health`.",
+  ].join("\n");
+};
+
 export const fetchHealth = async (baseUrl: string): Promise<HealthResponse> => {
-  const response = await fetch(`${baseUrl}/health`);
+  const url = `${baseUrl}/health`;
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (error) {
+    throw new Error(toNetworkErrorMessage(url, error));
+  }
 
   if (!response.ok) {
     throw new Error(`Failed to fetch health: ${response.status}`);
@@ -63,14 +94,19 @@ const buildAuthHeaders = (options?: RequestOptions): Record<string, string> => {
 };
 
 const postJson = async <TResponse>(url: string, payload: unknown, options?: RequestOptions): Promise<TResponse> => {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...buildAuthHeaders(options),
-    },
-    body: JSON.stringify(payload),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...buildAuthHeaders(options),
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new Error(toNetworkErrorMessage(url, error));
+  }
 
   let json: unknown;
   try {
@@ -88,10 +124,15 @@ const postJson = async <TResponse>(url: string, payload: unknown, options?: Requ
 };
 
 const getJson = async <TResponse>(url: string, options?: RequestOptions): Promise<TResponse> => {
-  const response = await fetch(url, {
-    method: "GET",
-    headers: buildAuthHeaders(options),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: buildAuthHeaders(options),
+    });
+  } catch (error) {
+    throw new Error(toNetworkErrorMessage(url, error));
+  }
 
   let json: unknown;
   try {
@@ -159,21 +200,74 @@ export const fetchFutureDiaryDraft = async (
 
 export type AuthSessionCreateResponse = {
   ok: true;
+  deprecated?: boolean;
   accessToken: string;
   user: {
     id: string;
     timezone: string;
+    authProvider?: "legacy" | "google";
+  };
+  session?: {
+    kind: "legacy" | "google";
+    expiresAt: string | null;
   };
 };
 
 export const createAuthSession = async (baseUrl: string, payload: { timezone: string }) =>
   await postJson<AuthSessionCreateResponse>(`${baseUrl}/v1/auth/session`, payload);
 
+export type GoogleAuthStartResponse = {
+  ok: true;
+  authorizationUrl: string;
+  stateExpiresAt: string;
+};
+
+export const startGoogleAuth = async (baseUrl: string, payload: { redirectUri: string }) =>
+  await postJson<GoogleAuthStartResponse>(`${baseUrl}/v1/auth/google/start`, payload);
+
+export type GoogleAuthExchangeResponse = {
+  ok: true;
+  accessToken: string;
+  user: {
+    id: string;
+    timezone: string;
+    email: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+    authProvider: "google";
+  };
+  session: {
+    kind: "google";
+    expiresAt: string;
+  };
+  migrated: boolean;
+};
+
+export const exchangeGoogleAuth = async (
+  baseUrl: string,
+  payload: {
+    code: string;
+    state: string;
+    redirectUri: string;
+    timezone: string;
+    legacyAccessToken?: string;
+  },
+) => await postJson<GoogleAuthExchangeResponse>(`${baseUrl}/v1/auth/google/exchange`, payload);
+
 export type AuthMeResponse = {
   ok: true;
   user: {
     id: string;
     timezone: string;
+    email: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+    authProvider: "legacy" | "google";
+    migrationRequired: boolean;
+  };
+  session: {
+    kind: "legacy" | "google";
+    expiresAt: string | null;
   };
 };
 

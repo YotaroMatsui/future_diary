@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler d1 migrations apply future-diary --local && wrangler dev",
+    "dev": "CI=1 wrangler d1 migrations apply future-diary --local && wrangler dev --local",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json --noEmit",
     "test": "bun test",

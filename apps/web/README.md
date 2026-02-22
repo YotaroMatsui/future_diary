@@ -53,7 +53,7 @@
   - 履歴閲覧 UI
   - API base URL 切替
 - 対象外（Non-goals）:
-  - 外部IdP連携やフル機能認証（MVPは accessToken で識別）
+  - パスワード認証やマルチIdP統合
   - リッチテキスト編集
 - 委譲（See）:
   - See: `apps/api/README.md`
@@ -77,6 +77,7 @@
 
 - 依存インストール: `make install`
 - 環境変数: `cp apps/web/.env.example apps/web/.env.local`
+- Google OAuth: `VITE_GOOGLE_AUTH_REDIRECT_URI` と Google Cloud Console の承認済みリダイレクト URI を完全一致させる（`redirect_uri_mismatch` 対策）。
 - 起動: `make dev-web`
 - 確認: `open http://127.0.0.1:5173`
 
@@ -106,7 +107,7 @@
   - 未来日記（下書き）の生成/編集/保存/確定 UI
   - 履歴閲覧 UI
 - 非提供:
-  - 外部IdP連携などのフル機能認証 UI
+  - パスワード認証 UI
 
 ### エントリポイント / エクスポート（SSOT）
 
@@ -114,12 +115,13 @@
 | ------------- | --------- | ------------- | -------------- | ------------------------ |
 | `App`                 | component | `src/App.tsx` | UI root | `apps/web/src/App.tsx:179` |
 | `fetchFutureDiaryDraft` | function  | `src/api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:147` |
-| `createAuthSession`     | function  | `src/api.ts`  | session 作成 | `apps/web/src/api.ts:162` |
+| `startGoogleAuth`       | function  | `src/api.ts`  | OAuth URL 取得 | `apps/web/src/api.ts` |
+| `exchangeGoogleAuth`    | function  | `src/api.ts`  | OAuth code 交換 | `apps/web/src/api.ts` |
 | `fetchAuthMe`           | function  | `src/api.ts`  | session 検証 | `apps/web/src/api.ts:173` |
 | `fetchUserModel`        | function  | `src/api.ts`  | user model 取得 | `apps/web/src/api.ts:195` |
 | `updateUserModel`       | function  | `src/api.ts`  | user model 更新 | `apps/web/src/api.ts:203` |
 | `resetUserModel`        | function  | `src/api.ts`  | user model 初期化 | `apps/web/src/api.ts:211` |
-| `logout`                | function  | `src/api.ts`  | ローカル logout シグナル送信（server key は保持） | `apps/web/src/api.ts:214` |
+| `logout`                | function  | `src/api.ts`  | 現在 session の失効 | `apps/web/src/api.ts` |
 | `saveDiaryEntry`        | function  | `src/api.ts`  | diary 保存 | `apps/web/src/api.ts:232` |
 | `confirmDiaryEntry`     | function  | `src/api.ts`  | diary 確定 | `apps/web/src/api.ts:241` |
 | `listDiaryEntries`      | function  | `src/api.ts`  | 履歴取得 | `apps/web/src/api.ts:253` |
@@ -129,7 +131,9 @@
 ### 使い方（必須）
 
 ```bash
-VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
+VITE_API_BASE_URL=http://127.0.0.1:8787 \
+VITE_GOOGLE_AUTH_REDIRECT_URI=http://127.0.0.1:5173 \
+make dev-web
 ```
 
 ### 依存ルール
@@ -161,7 +165,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
   - `DiaryEntryConfirmResponse`
   - `DiaryEntriesListResponse`
   - `DiaryEntryDeleteResponse`
-- `.env` の `VITE_API_BASE_URL`。
+- `.env` の `VITE_API_BASE_URL` / `VITE_GOOGLE_AUTH_REDIRECT_URI`（Google Console の redirect URI と一致させる）。
 
 ### 検証入口（CI / ローカル）
 
@@ -204,7 +208,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
 - 失敗セマンティクス:
   - fetch失敗時に toast を error 表示（status + API payload 整形）。
 - メインフロー:
-  - 初回: session 作成 -> access key modal -> 当日 draft 生成/読み込み。
+  - 初回: Google OAuth 開始 -> callback で code/state 交換 -> session 確立 -> 当日 draft 生成/読み込み。
   - (accessToken/timezone が揃っていれば) mount -> 当日 draft 生成/読み込み -> generationStatus を polling -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
@@ -212,7 +216,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8787 make dev-web
   - browser fetch（`api.ts`）。
   - localStorage（accessToken/timezone）。
 - トレードオフ:
-  - accessToken を localStorage に保持する（XSS リスクは残る）。
+  - accessToken を localStorage に保持する（XSS リスクは残るため、HttpOnly cookie への移行は今後の課題）。
 
 ```mermaid
 flowchart TD
@@ -231,7 +235,7 @@ flowchart TD
 - [E4] `apps/web/src/api.ts:232` — save client。
 - [E5] `apps/web/src/api.ts:241` — confirm client。
 - [E6] `apps/web/src/api.ts:253` — list client。
-- [E7] `apps/web/src/App.tsx:951` — access key modal（発行直後の表示/コピー導線）。
+- [E7] `apps/web/src/App.tsx` — Google OAuth callback（`code/state` 交換）処理。
 </details>
 
 ## 品質
@@ -288,6 +292,7 @@ flowchart TD
 ### [SUMMARY]
 
 - Web は 未来日記（下書き）の生成/編集/保存/確定/履歴閲覧 の UI と、Profile（user model）編集 UI を提供する。
+- ログイン導線を Google OAuth 2.0 / OIDC へ移行し、callback で API exchange を実行して session を確立する。
 - 生成の透明性として、used model / keywords / source fragments を editor 下部に表示できる。
 - 履歴 UI は月ナビ付きカレンダーとページング（30件単位の追加読み込み）を提供する。
 

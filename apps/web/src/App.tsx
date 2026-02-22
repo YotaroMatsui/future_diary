@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DiaryEntryWithBody, DiaryStatus, DraftGenerationStatus, FutureDiaryDraftResponse, UserModel } from "./api";
 import {
   confirmDiaryEntry,
-  createAuthSession,
   deleteDiaryEntry,
   deleteUser,
+  exchangeGoogleAuth,
   fetchAuthMe,
   fetchFutureDiaryDraft,
   fetchUserModel,
@@ -13,10 +13,28 @@ import {
   logout,
   resetUserModel,
   saveDiaryEntry,
+  startGoogleAuth,
   updateUserModel,
 } from "./api";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
+const googleAuthRedirectUriFromEnv =
+  typeof import.meta.env.VITE_GOOGLE_AUTH_REDIRECT_URI === "string"
+    ? import.meta.env.VITE_GOOGLE_AUTH_REDIRECT_URI.trim()
+    : "";
+
+const resolveGoogleAuthRedirectUri = (url: URL): string => {
+  if (googleAuthRedirectUriFromEnv.length === 0) {
+    return url.origin;
+  }
+
+  try {
+    new URL(googleAuthRedirectUriFromEnv);
+    return googleAuthRedirectUriFromEnv;
+  } catch {
+    return url.origin;
+  }
+};
 
 const storageKeys = {
   accessToken: "futureDiary.accessToken",
@@ -227,63 +245,6 @@ const normalizeSnippet = (text: string, maxChars: number): string => {
   return normalized.length <= maxChars ? normalized : normalized.slice(0, maxChars) + "...";
 };
 
-const maskAccessToken = (token: string): string => {
-  const trimmed = token.trim();
-  if (trimmed.length === 0) {
-    return "";
-  }
-
-  if (trimmed.length <= 12) {
-    return "*".repeat(trimmed.length);
-  }
-
-  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
-};
-
-const copyTextToClipboard = async (text: string): Promise<void> => {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) {
-    throw new Error("nothing to copy");
-  }
-
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(trimmed);
-      return;
-    }
-  } catch {
-    // fall through to execCommand fallback
-  }
-
-  const body = typeof document === "undefined" ? null : document.body;
-  if (!body) {
-    throw new Error("clipboard is not available");
-  }
-
-  const textarea = document.createElement("textarea");
-  textarea.value = trimmed;
-  textarea.setAttribute("readonly", "true");
-  textarea.style.position = "fixed";
-  textarea.style.top = "0";
-  textarea.style.left = "0";
-  textarea.style.opacity = "0";
-  textarea.style.pointerEvents = "none";
-
-  body.appendChild(textarea);
-
-  try {
-    textarea.focus();
-    textarea.select();
-
-    const ok = document.execCommand("copy");
-    if (!ok) {
-      throw new Error("execCommand copy failed");
-    }
-  } finally {
-    body.removeChild(textarea);
-  }
-};
-
 const generationStatusLabel = (status: DraftGenerationStatus): string => {
   switch (status) {
     case "created":
@@ -326,6 +287,16 @@ type ToastState = {
 type AuthUser = {
   id: string;
   timezone: string;
+  email: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  authProvider: "legacy" | "google";
+  migrationRequired: boolean;
+};
+
+type AuthSession = {
+  kind: "legacy" | "google";
+  expiresAt: string | null;
 };
 
 export const App = () => {
@@ -338,11 +309,10 @@ export const App = () => {
   const [selectedDate, setSelectedDate] = useState(() => formatDateInTimeZone(new Date(), timezone));
 
   const [accessToken, setAccessToken] = useState(() => readLocalStorageString(storageKeys.accessToken) ?? "");
-  const [accessTokenInput, setAccessTokenInput] = useState("");
-  const [issuedAccessToken, setIssuedAccessToken] = useState<string | null>(null);
-  const [accessKeyRevealed, setAccessKeyRevealed] = useState(false);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [oauthProcessing, setOauthProcessing] = useState(false);
 
   const [userModel, setUserModel] = useState<UserModel | null>(null);
   const [userModelDraft, setUserModelDraft] = useState<UserModel | null>(null);
@@ -413,6 +383,14 @@ export const App = () => {
     setHistoryLoadingMore(false);
   }, []);
 
+  const clearAuthState = useCallback((): void => {
+    setAccessToken("");
+    setAuthUser(null);
+    setAuthSession(null);
+    resetEntryState();
+    resetHistoryState();
+  }, [resetEntryState, resetHistoryState]);
+
   useEffect(() => {
     writeLocalStorageString(storageKeys.timezone, timezoneTrim);
   }, [timezoneTrim]);
@@ -441,9 +419,88 @@ export const App = () => {
   }, [selectedDate]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const error = url.searchParams.get("error");
+    const code = url.searchParams.get("code");
+    const state = url.searchParams.get("state");
+
+    const clearAuthQuery = (): void => {
+      url.searchParams.delete("code");
+      url.searchParams.delete("state");
+      url.searchParams.delete("scope");
+      url.searchParams.delete("authuser");
+      url.searchParams.delete("prompt");
+      url.searchParams.delete("error");
+      url.searchParams.delete("error_description");
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      window.history.replaceState({}, "", nextUrl);
+    };
+
+    if (error) {
+      const redirectUriHint =
+        error === "redirect_uri_mismatch"
+          ? ` 承認済みリダイレクト URI に ${resolveGoogleAuthRedirectUri(url)} を追加してください。`
+          : "";
+      setToast({ kind: "error", message: `Googleログインに失敗しました: ${error}.${redirectUriHint}`.trim() });
+      clearAuthQuery();
+      return;
+    }
+
+    if (!code || !state) {
+      return;
+    }
+
+    const redirectUri = resolveGoogleAuthRedirectUri(url);
+    const legacyToken = readLocalStorageString(storageKeys.accessToken)?.trim() ?? "";
+
+    setOauthProcessing(true);
+    setAuthLoading(true);
+    setToast({ kind: "info", message: "Googleログインを完了しています..." });
+
+    void (async () => {
+      try {
+        const response = await exchangeGoogleAuth(apiBaseUrl, {
+          code,
+          state,
+          redirectUri,
+          timezone: timezoneTrim || defaultTimezone,
+          legacyAccessToken: legacyToken.length > 0 ? legacyToken : undefined,
+        });
+        setAccessToken(response.accessToken);
+        setAuthUser({
+          ...response.user,
+          migrationRequired: false,
+        });
+        setAuthSession(response.session);
+        setToast({
+          kind: "info",
+          message: response.migrated ? "Googleログインへ移行し、既存データを引き継ぎました。" : "Googleでログインしました。",
+        });
+      } catch (exchangeError) {
+        const errorMessage = exchangeError instanceof Error ? exchangeError.message : "unknown error";
+        setToast({ kind: "error", message: `Googleログインの完了に失敗しました: ${errorMessage}` });
+        clearAuthState();
+      } finally {
+        clearAuthQuery();
+        setOauthProcessing(false);
+        setAuthLoading(false);
+      }
+    })();
+  }, [clearAuthState, defaultTimezone, timezoneTrim]);
+
+  useEffect(() => {
     if (accessTokenTrim.length === 0) {
       setAuthUser(null);
+      setAuthSession(null);
       setAuthLoading(false);
+      return;
+    }
+
+    if (oauthProcessing) {
       return;
     }
 
@@ -456,16 +513,16 @@ export const App = () => {
       try {
         const me = await fetchAuthMe(apiBaseUrl, accessTokenTrim);
         setAuthUser(me.user);
+        setAuthSession(me.session);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : "unknown error";
         setToast({ kind: "error", message: `ログインに失敗しました: ${errorMessage}` });
-        setAccessToken("");
-        setAuthUser(null);
+        clearAuthState();
       } finally {
         setAuthLoading(false);
       }
     })();
-  }, [accessTokenTrim, authUser]);
+  }, [accessTokenTrim, authUser, clearAuthState, oauthProcessing]);
 
   const refreshUserModel = useCallback(async (): Promise<void> => {
     if (accessTokenTrim.length === 0) {
@@ -886,80 +943,29 @@ export const App = () => {
     setHistoryMonth((prev) => shiftMonthKey(prev, diffMonths));
   }, []);
 
-  const copyAccessKeyToClipboard = useCallback(async (token: string): Promise<void> => {
-    const tokenTrim = token.trim();
-    if (tokenTrim.length === 0) {
+  const onStartGoogleLogin = useCallback(async (): Promise<void> => {
+    if (typeof window === "undefined") {
       return;
     }
 
+    setAuthLoading(true);
+    setToast({ kind: "info", message: "Googleログインを開始します..." });
+
     try {
-      await copyTextToClipboard(tokenTrim);
-      setToast({ kind: "info", message: "アクセスキーをコピーしました。" });
+      const redirectUri = resolveGoogleAuthRedirectUri(new URL(window.location.href));
+      const response = await startGoogleAuth(apiBaseUrl, { redirectUri });
+      window.location.assign(response.authorizationUrl);
     } catch (error) {
-      console.warn("Access key copy failed", { message: error instanceof Error ? error.message : String(error) });
-      setToast({ kind: "error", message: "コピーに失敗しました（ブラウザの権限をご確認ください）。" });
+      const errorMessage = error instanceof Error ? error.message : "unknown error";
+      setToast({ kind: "error", message: `Googleログインの開始に失敗しました: ${errorMessage}` });
+    } finally {
+      setAuthLoading(false);
     }
   }, []);
 
-  const onCopyAccessKey = useCallback(async (): Promise<void> => {
-    await copyAccessKeyToClipboard(accessTokenTrim);
-  }, [accessTokenTrim, copyAccessKeyToClipboard]);
-
-  const onCreateSession = useCallback(async (): Promise<void> => {
-    setAuthLoading(true);
-    setToast({ kind: "info", message: "認証セッションを作成しています..." });
-
-    try {
-      const response = await createAuthSession(apiBaseUrl, { timezone: timezoneTrim || defaultTimezone });
-      setAccessToken(response.accessToken);
-      setAuthUser(response.user);
-      setIssuedAccessToken(response.accessToken);
-      setAccessKeyRevealed(false);
-      setAccessTokenInput("");
-      setToast({ kind: "info", message: "アクセスキーを発行しました。安全な場所に保存してください。" });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "unknown error";
-      setToast({ kind: "error", message: `ログインに失敗しました: ${errorMessage}` });
-    } finally {
-      setAuthLoading(false);
-    }
-  }, [defaultTimezone, timezoneTrim]);
-
-  const onLoginWithToken = useCallback(async (): Promise<void> => {
-    const tokenTrim = accessTokenInput.trim();
-    if (tokenTrim.length === 0) {
-      setToast({ kind: "error", message: "アクセスキーを入力してください。" });
-      return;
-    }
-
-    setAuthLoading(true);
-    setToast({ kind: "info", message: "ログインしています..." });
-
-    try {
-      const me = await fetchAuthMe(apiBaseUrl, tokenTrim);
-      setIssuedAccessToken(null);
-      setAccessKeyRevealed(false);
-      setAccessToken(tokenTrim);
-      setAuthUser(me.user);
-      setAccessTokenInput("");
-      setToast({ kind: "info", message: "ログインしました。" });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "unknown error";
-      setToast({ kind: "error", message: `ログインに失敗しました: ${errorMessage}` });
-    } finally {
-      setAuthLoading(false);
-    }
-  }, [accessTokenInput]);
-
   const onLogout = useCallback(async (): Promise<void> => {
     if (accessTokenTrim.length === 0) {
-      setIssuedAccessToken(null);
-      setAccessKeyRevealed(false);
-      setAccessToken("");
-      setAuthUser(null);
-      setAccessTokenInput("");
-      resetEntryState();
-      resetHistoryState();
+      clearAuthState();
       setToast(null);
       return;
     }
@@ -971,16 +977,10 @@ export const App = () => {
       // ignore (token might already be invalidated)
     } finally {
       setAuthLoading(false);
-      setIssuedAccessToken(null);
-      setAccessKeyRevealed(false);
-      setAccessToken("");
-      setAuthUser(null);
-      setAccessTokenInput("");
-      resetEntryState();
-      resetHistoryState();
+      clearAuthState();
       setToast(null);
     }
-  }, [accessTokenTrim, resetEntryState, resetHistoryState]);
+  }, [accessTokenTrim, clearAuthState]);
 
   const onDeleteAccount = useCallback(async (): Promise<void> => {
     if (!canCallApi) {
@@ -1001,20 +1001,14 @@ export const App = () => {
     try {
       await deleteUser(apiBaseUrl, accessTokenTrim);
       setToast({ kind: "info", message: "削除しました。" });
-      setIssuedAccessToken(null);
-      setAccessKeyRevealed(false);
-      setAccessToken("");
-      setAuthUser(null);
-      setAccessTokenInput("");
-      resetEntryState();
-      resetHistoryState();
+      clearAuthState();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "unknown error";
       setToast({ kind: "error", message: `削除に失敗しました: ${errorMessage}` });
     } finally {
       setDeleteUserLoading(false);
     }
-  }, [accessTokenTrim, canCallApi, resetEntryState, resetHistoryState]);
+  }, [accessTokenTrim, canCallApi, clearAuthState]);
 
   useEffect(() => {
     if (!canCallApi) {
@@ -1042,9 +1036,18 @@ export const App = () => {
       </div>
       <div className="appHeader__meta">
         <div className="pill pill--neutral">API: {apiBaseUrl}</div>
-        {authUser ? <div className="pill pill--neutral">user: {authUser.id.slice(0, 8)}</div> : null}
+        {authUser ? (
+          <div className="pill pill--neutral">
+            user: {(authUser.displayName ?? authUser.email ?? authUser.id).slice(0, 24)}
+          </div>
+        ) : null}
         {isAuthenticated ? (
-          <button className="button button--ghost" onClick={() => void loadDraft({ date: todayDate, reason: "manual" })} type="button" disabled={!canCallApi || draftLoading}>
+          <button
+            className="button button--ghost"
+            onClick={() => void loadDraft({ date: todayDate, reason: "manual" })}
+            type="button"
+            disabled={!canCallApi || draftLoading}
+          >
             今日を再読み込み
           </button>
         ) : null}
@@ -1058,72 +1061,35 @@ export const App = () => {
         {header}
         <div className="layout layout--single">
           <section className="main">
-            <div className="onboarding">
-              <div className="card card--controls card--callout">
-                <h2 className="cardTitle">初めての方</h2>
-                <p className="hint">
-                  まずアクセスキーを発行して開始します。アクセスキーはログイン情報です。紛失すると復旧できません。
-                </p>
+            <div className="card card--controls card--callout">
+              <h2 className="cardTitle">Googleでログイン</h2>
+              <p className="hint">
+                Googleアカウントでサインインすると、同じアカウントで継続して日記データを利用できます。
+              </p>
 
-                <label className="field">
-                  <span className="field__label">timezone</span>
-                  <input
-                    className="input"
-                    value={timezone}
-                    onChange={(event) => setTimezone(event.target.value)}
-                    placeholder="例: Asia/Tokyo"
-                    autoComplete="off"
-                  />
-                </label>
+              <label className="field">
+                <span className="field__label">timezone</span>
+                <input
+                  className="input"
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
+                  placeholder="例: Asia/Tokyo"
+                  autoComplete="off"
+                />
+              </label>
 
-                <div className="actions">
-                  <button
-                    className="button"
-                    onClick={() => void onCreateSession()}
-                    type="button"
-                    disabled={authLoading || timezoneTrim.length === 0}
-                  >
-                    {authLoading ? "処理中..." : "アクセスキーを発行して始める"}
-                  </button>
-                </div>
-
-                <details className="details">
-                  <summary>アクセスキーについて</summary>
-                  <p className="hint">
-                    発行後にアクセスキーを表示します。別の端末でも使う場合は、コピーして安全な場所に保存してください。
-                  </p>
-                </details>
+              <div className="actions">
+                <button
+                  className="button"
+                  onClick={() => void onStartGoogleLogin()}
+                  type="button"
+                  disabled={authLoading || oauthProcessing || timezoneTrim.length === 0}
+                >
+                  {authLoading || oauthProcessing ? "処理中..." : "Googleでログイン"}
+                </button>
               </div>
 
-              <div className="card card--controls">
-                <h2 className="cardTitle">アクセスキーを持っている</h2>
-                <p className="hint">以前発行したアクセスキーを貼り付けてログインします。</p>
-
-                <label className="field">
-                  <span className="field__label">access key</span>
-                  <input
-                    className="input input--mono"
-                    value={accessTokenInput}
-                    onChange={(event) => setAccessTokenInput(event.target.value)}
-                    placeholder="例: xxxx-xxxx-xxxx-xxxx"
-                    autoComplete="off"
-                    spellCheck={false}
-                  />
-                </label>
-
-                <div className="actions">
-                  <button
-                    className="button button--secondary"
-                    onClick={() => void onLoginWithToken()}
-                    type="button"
-                    disabled={authLoading || accessTokenInput.trim().length === 0}
-                  >
-                    {authLoading ? "処理中..." : "アクセスキーでログイン"}
-                  </button>
-                </div>
-
-                <p className="hint">timezone はログイン後に変更できます。共有PCではログアウトしてください。</p>
-              </div>
+              <p className="hint">ログイン後はセッション期限内で自動ログインされます。共有PCでは必ずログアウトしてください。</p>
             </div>
 
             <div className="actions">
@@ -1147,7 +1113,7 @@ export const App = () => {
           <section className="main">
             <div className="card card--controls">
               <h2 className="editorHeader__title">Signing in...</h2>
-              <p className="hint">アクセスキーを検証しています。</p>
+              <p className="hint">ログインセッションを検証しています。</p>
               <div className="actions">
                 <button className="button" type="button" disabled>
                   {authLoading ? "検証中..." : "待機中"}
@@ -1156,9 +1122,7 @@ export const App = () => {
                   className="button button--ghost"
                   type="button"
                   onClick={() => {
-                    setAccessToken("");
-                    setAuthUser(null);
-                    setAccessTokenInput("");
+                    clearAuthState();
                   }}
                 >
                   やり直す
@@ -1174,54 +1138,6 @@ export const App = () => {
 
   return (
     <div className="app">
-      {issuedAccessToken ? (
-        <div className="modalOverlay" role="dialog" aria-modal="true" aria-label="Access key issued">
-          <div className="modal">
-            <h2 className="modal__title">アクセスキーを保存してください</h2>
-            <p className="hint">
-              このアクセスキーがログイン情報です。紛失すると復旧できません。安全な場所に保存してください。
-            </p>
-
-            <div className="secretBox">
-              <div className="secretBox__label">access key</div>
-              <div className="secretBox__value">
-                <code>{accessKeyRevealed ? issuedAccessToken : maskAccessToken(issuedAccessToken)}</code>
-              </div>
-            </div>
-
-            <div className="actions actions--primary">
-              <button
-                className="button"
-                onClick={() => void copyAccessKeyToClipboard(issuedAccessToken)}
-                type="button"
-              >
-                コピー
-              </button>
-              <button
-                className="button button--ghost"
-                onClick={() => setAccessKeyRevealed((prev) => !prev)}
-                type="button"
-              >
-                {accessKeyRevealed ? "隠す" : "表示"}
-              </button>
-              <button
-                className="button button--secondary"
-                onClick={() => {
-                  setIssuedAccessToken(null);
-                  setAccessKeyRevealed(false);
-                }}
-                type="button"
-              >
-                保存した
-              </button>
-            </div>
-
-            <p className="hint">
-              コピーが失敗した場合は「表示」を押して手動でコピーしてください。後からは Account からも表示/コピーできます。
-            </p>
-          </div>
-        </div>
-      ) : null}
       {header}
 
       <div className="layout">
@@ -1480,29 +1396,41 @@ export const App = () => {
           <div className="card">
             <h2 className="historyHeader__title">Account</h2>
             <p className="hint">
-              アクセスキーはログイン情報です。別の端末でも使う場合はコピーして安全な場所に保存してください。削除は取り消しできません。
+              Googleログインでアカウントを管理します。削除は取り消しできません。
             </p>
 
-            <label className="field">
-              <span className="field__label">access key</span>
-              <div className="secretRow">
+            <div className="controls">
+              <label className="field">
+                <span className="field__label">provider</span>
+                <input className="input" value={authUser.authProvider} readOnly autoComplete="off" />
+              </label>
+              <label className="field">
+                <span className="field__label">email</span>
+                <input className="input" value={authUser.email ?? "(not set)"} readOnly autoComplete="off" />
+              </label>
+              <label className="field">
+                <span className="field__label">session</span>
                 <input
-                  className="input input--mono"
-                  value={accessKeyRevealed ? accessTokenTrim : maskAccessToken(accessTokenTrim)}
+                  className="input"
+                  value={authSession ? `${authSession.kind} / ${authSession.expiresAt ?? "no-expiry"}` : "unknown"}
                   readOnly
                   autoComplete="off"
-                  spellCheck={false}
                 />
+              </label>
+            </div>
+
+            {authUser.migrationRequired ? (
+              <div className="actions">
                 <button
-                  className="button button--ghost"
-                  onClick={() => setAccessKeyRevealed((prev) => !prev)}
+                  className="button button--secondary"
+                  onClick={() => void onStartGoogleLogin()}
                   type="button"
-                  disabled={accessTokenTrim.length === 0}
+                  disabled={authLoading || oauthProcessing}
                 >
-                  {accessKeyRevealed ? "隠す" : "表示"}
+                  {authLoading || oauthProcessing ? "処理中..." : "Googleアカウントを連携して移行"}
                 </button>
               </div>
-            </label>
+            ) : null}
 
             <details className="details">
               <summary>Profile (style/intent)</summary>
@@ -1669,8 +1597,13 @@ export const App = () => {
             </details>
 
             <div className="actions">
-              <button className="button button--secondary" onClick={() => void onCopyAccessKey()} type="button" disabled={accessTokenTrim.length === 0}>
-                アクセスキーをコピー
+              <button
+                className="button button--secondary"
+                onClick={() => void onStartGoogleLogin()}
+                type="button"
+                disabled={authLoading || oauthProcessing}
+              >
+                {authLoading || oauthProcessing ? "処理中..." : "Googleで再ログイン"}
               </button>
               <button className="button button--ghost" onClick={() => void onLogout()} type="button" disabled={authLoading || deleteUserLoading}>
                 ログアウト

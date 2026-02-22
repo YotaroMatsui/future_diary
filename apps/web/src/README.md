@@ -66,6 +66,7 @@
 
 - 依存インストール: `make install`
 - 環境変数: `../.env.example`
+- Google OAuth: `VITE_GOOGLE_AUTH_REDIRECT_URI` を設定し、Google Cloud Console の承認済みリダイレクト URI と一致させる。
 - 起動: `make dev-web`
 - 確認: browser rendering
 
@@ -94,7 +95,7 @@
   - `App`
   - diary API client（`fetchFutureDiaryDraft` / `saveDiaryEntry` / `confirmDiaryEntry` / `listDiaryEntries` / `deleteDiaryEntry`）
   - user model client（`fetchUserModel` / `updateUserModel` / `resetUserModel`）
-  - auth client（`createAuthSession` / `fetchAuthMe` / `logout` / `deleteUser`）
+  - auth client（`startGoogleAuth` / `exchangeGoogleAuth` / `fetchAuthMe` / `logout` / `deleteUser`）
 - 非提供:
   - shared UI primitives
 
@@ -104,12 +105,13 @@
 | ------------- | --------- | --------- | -------------- | ------------------------ |
 | `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:179` |
 | `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:147` |
-| `createAuthSession`     | function  | `api.ts`  | session 作成 | `apps/web/src/api.ts:162` |
+| `startGoogleAuth`       | function  | `api.ts`  | OAuth URL 取得 | `apps/web/src/api.ts` |
+| `exchangeGoogleAuth`    | function  | `api.ts`  | OAuth code 交換 | `apps/web/src/api.ts` |
 | `fetchAuthMe`           | function  | `api.ts`  | session 検証 | `apps/web/src/api.ts:173` |
 | `fetchUserModel`        | function  | `api.ts`  | user model 取得 | `apps/web/src/api.ts:195` |
 | `updateUserModel`       | function  | `api.ts`  | user model 更新 | `apps/web/src/api.ts:203` |
 | `resetUserModel`        | function  | `api.ts`  | user model 初期化 | `apps/web/src/api.ts:211` |
-| `logout`                | function  | `api.ts`  | session 破棄 | `apps/web/src/api.ts:214` |
+| `logout`                | function  | `api.ts`  | session 失効 | `apps/web/src/api.ts` |
 | `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:232` |
 | `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:241` |
 | `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:253` |
@@ -150,6 +152,9 @@ import { App } from "./App";
   - `DiaryEntryConfirmResponse`
   - `DiaryEntriesListResponse`
   - `DiaryEntryDeleteResponse`
+- `.env`:
+  - `VITE_API_BASE_URL`
+  - `VITE_GOOGLE_AUTH_REDIRECT_URI`（Google Console の redirect URI と一致）
 
 ### 検証入口（CI / ローカル）
 
@@ -187,7 +192,7 @@ import { App } from "./App";
 - 失敗セマンティクス:
   - 非200は例外として扱い、UI は toast に表示する。
 - メインフロー:
-  - 初回: session 作成 -> access key modal -> 当日 draft 生成トリガ。
+  - 初回: Google OAuth 開始 -> callback で exchange -> 当日 draft 生成トリガ。
   - mount -> 当日 draft 生成トリガ -> generationStatus を polling -> editor 表示。
   - edit -> save -> confirm。
   - list -> history 表示。
@@ -195,7 +200,7 @@ import { App } from "./App";
   - `fetch`（`api.ts`）
   - localStorage（`App.tsx`）
 - トレードオフ:
-  - accessToken を localStorage に保持する（XSS リスクは残る）。
+  - accessToken を localStorage に保持する（XSS リスクは残るため、HttpOnly cookie への移行余地あり）。
 
 ```mermaid
 flowchart TD
@@ -213,7 +218,7 @@ flowchart TD
 
 - [E1] `apps/web/src/App.tsx:807` — auto load。
 - [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
-- [E3] `apps/web/src/App.tsx:951` — access key modal（発行直後の表示/コピー導線）。
+- [E3] `apps/web/src/App.tsx` — OAuth callback（`code/state`）交換処理。
 </details>
 
 ## 品質
