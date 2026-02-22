@@ -1,5 +1,12 @@
 import type { DiaryEntry } from "@future-diary/core";
-import type { AuthSessionRow, DiaryEntryRevisionKind, DiaryRow, UserRow } from "./schema";
+import type {
+  AuthOauthStateRow,
+  AuthSessionRow,
+  DiaryEntryRevisionKind,
+  DiaryRow,
+  UserIdentityRow,
+  UserRow,
+} from "./schema";
 
 interface D1StatementLike {
   bind(...values: unknown[]): D1StatementLike;
@@ -69,6 +76,9 @@ export type AuthSession = {
   id: string;
   userId: string;
   tokenHash: string;
+  sessionKind: "legacy" | "google";
+  expiresAt: string | null;
+  revokedAt: string | null;
   createdAt: string;
   lastUsedAt: string;
 };
@@ -77,8 +87,39 @@ const toAuthSession = (row: AuthSessionRow): AuthSession => ({
   id: row.id,
   userId: row.user_id,
   tokenHash: row.token_hash,
+  sessionKind: row.session_kind ?? "legacy",
+  expiresAt: row.expires_at,
+  revokedAt: row.revoked_at,
   createdAt: row.created_at,
   lastUsedAt: row.last_used_at,
+});
+
+export type UserIdentity = {
+  id: string;
+  userId: string;
+  provider: string;
+  providerSubject: string;
+  email: string | null;
+  emailVerified: boolean;
+  displayName: string | null;
+  avatarUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string;
+};
+
+const toUserIdentity = (row: UserIdentityRow): UserIdentity => ({
+  id: row.id,
+  userId: row.user_id,
+  provider: row.provider,
+  providerSubject: row.provider_subject,
+  email: row.email,
+  emailVerified: row.email_verified === 1,
+  displayName: row.display_name,
+  avatarUrl: row.avatar_url,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  lastLoginAt: row.last_login_at,
 });
 
 export interface DiaryRepository {
@@ -421,9 +462,17 @@ export const createUserRepository = (db: D1DatabaseLike): UserRepository => {
 };
 
 export interface AuthSessionRepository {
+  findActiveByTokenHash(tokenHash: string): Promise<AuthSession | null>;
   findByTokenHash(tokenHash: string): Promise<AuthSession | null>;
-  createSession(input: { id: string; userId: string; tokenHash: string }): Promise<void>;
+  createSession(input: {
+    id: string;
+    userId: string;
+    tokenHash: string;
+    sessionKind: "legacy" | "google";
+    expiresAt: string;
+  }): Promise<void>;
   touchSession(sessionId: string): Promise<void>;
+  revokeSession(sessionId: string): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   deleteByUserId(userId: string): Promise<void>;
 }
@@ -431,25 +480,52 @@ export interface AuthSessionRepository {
 export const createAuthSessionRepository = (db: D1DatabaseLike): AuthSessionRepository => {
   const findByTokenHash = async (tokenHash: string): Promise<AuthSession | null> => {
     const row = await db
-      .prepare("SELECT id, user_id, token_hash, created_at, last_used_at FROM auth_sessions WHERE token_hash = ?")
+      .prepare(
+        "SELECT id, user_id, token_hash, session_kind, expires_at, revoked_at, created_at, last_used_at FROM auth_sessions WHERE token_hash = ?",
+      )
       .bind(tokenHash)
       .first<AuthSessionRow>();
 
     return row === null ? null : toAuthSession(row);
   };
 
-  const createSession = async (input: { id: string; userId: string; tokenHash: string }): Promise<void> => {
+  const findActiveByTokenHash = async (tokenHash: string): Promise<AuthSession | null> => {
+    const row = await db
+      .prepare(
+        `SELECT id, user_id, token_hash, session_kind, expires_at, revoked_at, created_at, last_used_at
+         FROM auth_sessions
+         WHERE token_hash = ?
+           AND revoked_at IS NULL
+           AND (expires_at IS NULL OR expires_at > datetime('now'))`,
+      )
+      .bind(tokenHash)
+      .first<AuthSessionRow>();
+
+    return row === null ? null : toAuthSession(row);
+  };
+
+  const createSession = async (input: {
+    id: string;
+    userId: string;
+    tokenHash: string;
+    sessionKind: "legacy" | "google";
+    expiresAt: string;
+  }): Promise<void> => {
     await db
       .prepare(
-        `INSERT INTO auth_sessions (id, user_id, token_hash, created_at, last_used_at)
-         VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
+        `INSERT INTO auth_sessions (id, user_id, token_hash, session_kind, expires_at, revoked_at, created_at, last_used_at)
+         VALUES (?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))`,
       )
-      .bind(input.id, input.userId, input.tokenHash)
+      .bind(input.id, input.userId, input.tokenHash, input.sessionKind, input.expiresAt)
       .run();
   };
 
   const touchSession = async (sessionId: string): Promise<void> => {
     await db.prepare("UPDATE auth_sessions SET last_used_at = datetime('now') WHERE id = ?").bind(sessionId).run();
+  };
+
+  const revokeSession = async (sessionId: string): Promise<void> => {
+    await db.prepare("UPDATE auth_sessions SET revoked_at = datetime('now') WHERE id = ?").bind(sessionId).run();
   };
 
   const deleteSession = async (sessionId: string): Promise<void> => {
@@ -461,10 +537,184 @@ export const createAuthSessionRepository = (db: D1DatabaseLike): AuthSessionRepo
   };
 
   return {
+    findActiveByTokenHash,
     findByTokenHash,
     createSession,
     touchSession,
+    revokeSession,
     deleteSession,
     deleteByUserId,
+  };
+};
+
+export interface UserIdentityRepository {
+  findByProviderSubject(provider: string, providerSubject: string): Promise<UserIdentity | null>;
+  findByUserIdAndProvider(userId: string, provider: string): Promise<UserIdentity | null>;
+  upsertIdentity(input: {
+    id: string;
+    userId: string;
+    provider: string;
+    providerSubject: string;
+    email: string | null;
+    emailVerified: boolean;
+    displayName: string | null;
+    avatarUrl: string | null;
+  }): Promise<UserIdentity>;
+}
+
+export const createUserIdentityRepository = (db: D1DatabaseLike): UserIdentityRepository => {
+  const findByProviderSubject = async (provider: string, providerSubject: string): Promise<UserIdentity | null> => {
+    const row = await db
+      .prepare(
+        `SELECT id, user_id, provider, provider_subject, email, email_verified, display_name, avatar_url, created_at, updated_at, last_login_at
+         FROM user_identities
+         WHERE provider = ? AND provider_subject = ?`,
+      )
+      .bind(provider, providerSubject)
+      .first<UserIdentityRow>();
+
+    return row === null ? null : toUserIdentity(row);
+  };
+
+  const findByUserIdAndProvider = async (userId: string, provider: string): Promise<UserIdentity | null> => {
+    const row = await db
+      .prepare(
+        `SELECT id, user_id, provider, provider_subject, email, email_verified, display_name, avatar_url, created_at, updated_at, last_login_at
+         FROM user_identities
+         WHERE user_id = ? AND provider = ?`,
+      )
+      .bind(userId, provider)
+      .first<UserIdentityRow>();
+
+    return row === null ? null : toUserIdentity(row);
+  };
+
+  const upsertIdentity = async (input: {
+    id: string;
+    userId: string;
+    provider: string;
+    providerSubject: string;
+    email: string | null;
+    emailVerified: boolean;
+    displayName: string | null;
+    avatarUrl: string | null;
+  }): Promise<UserIdentity> => {
+    await db
+      .prepare(
+        `INSERT INTO user_identities (
+           id, user_id, provider, provider_subject, email, email_verified, display_name, avatar_url, created_at, updated_at, last_login_at
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), datetime('now'))
+         ON CONFLICT(provider, provider_subject)
+         DO UPDATE SET
+           user_id = excluded.user_id,
+           email = excluded.email,
+           email_verified = excluded.email_verified,
+           display_name = excluded.display_name,
+           avatar_url = excluded.avatar_url,
+           updated_at = datetime('now'),
+           last_login_at = datetime('now')`,
+      )
+      .bind(
+        input.id,
+        input.userId,
+        input.provider,
+        input.providerSubject,
+        input.email,
+        input.emailVerified ? 1 : 0,
+        input.displayName,
+        input.avatarUrl,
+      )
+      .run();
+
+    const created = await findByProviderSubject(input.provider, input.providerSubject);
+    if (created === null) {
+      throw new Error("Failed to upsert user identity");
+    }
+
+    return created;
+  };
+
+  return {
+    findByProviderSubject,
+    findByUserIdAndProvider,
+    upsertIdentity,
+  };
+};
+
+export type AuthOauthState = {
+  state: string;
+  codeVerifier: string;
+  redirectUri: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
+};
+
+const toAuthOauthState = (row: AuthOauthStateRow): AuthOauthState => ({
+  state: row.state,
+  codeVerifier: row.code_verifier,
+  redirectUri: row.redirect_uri,
+  createdAt: row.created_at,
+  expiresAt: row.expires_at,
+  usedAt: row.used_at,
+});
+
+export interface AuthOauthStateRepository {
+  createState(input: { state: string; codeVerifier: string; redirectUri: string; expiresAt: string }): Promise<void>;
+  consumeState(state: string): Promise<AuthOauthState | null>;
+  deleteExpiredStates(): Promise<void>;
+}
+
+export const createAuthOauthStateRepository = (db: D1DatabaseLike): AuthOauthStateRepository => {
+  const createState = async (input: {
+    state: string;
+    codeVerifier: string;
+    redirectUri: string;
+    expiresAt: string;
+  }): Promise<void> => {
+    await db
+      .prepare(
+        `INSERT INTO auth_oauth_states (state, code_verifier, redirect_uri, created_at, expires_at, used_at)
+         VALUES (?, ?, ?, datetime('now'), ?, NULL)`,
+      )
+      .bind(input.state, input.codeVerifier, input.redirectUri, input.expiresAt)
+      .run();
+  };
+
+  const consumeState = async (state: string): Promise<AuthOauthState | null> => {
+    const consumedAt = new Date().toISOString();
+
+    await db
+      .prepare(
+        `UPDATE auth_oauth_states
+         SET used_at = ?
+         WHERE state = ?
+           AND used_at IS NULL
+           AND expires_at > datetime('now')`,
+      )
+      .bind(consumedAt, state)
+      .run();
+
+    const row = await db
+      .prepare(
+        `SELECT state, code_verifier, redirect_uri, created_at, expires_at, used_at
+         FROM auth_oauth_states
+         WHERE state = ? AND used_at = ?`,
+      )
+      .bind(state, consumedAt)
+      .first<AuthOauthStateRow>();
+
+    return row === null ? null : toAuthOauthState(row);
+  };
+
+  const deleteExpiredStates = async (): Promise<void> => {
+    await db.prepare("DELETE FROM auth_oauth_states WHERE expires_at <= datetime('now')").run();
+  };
+
+  return {
+    createState,
+    consumeState,
+    deleteExpiredStates,
   };
 };

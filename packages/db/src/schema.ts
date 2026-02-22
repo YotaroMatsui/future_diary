@@ -46,6 +46,32 @@ export interface AuthSessionRow {
   id: string;
   user_id: string;
   token_hash: string;
+  session_kind: "legacy" | "google";
+  expires_at: string | null;
+  revoked_at: string | null;
   created_at: string;
   last_used_at: string;
+}
+
+export interface UserIdentityRow {
+  id: string;
+  user_id: string;
+  provider: string;
+  provider_subject: string;
+  email: string | null;
+  email_verified: number;
+  display_name: string | null;
+  avatar_url: string | null;
+  created_at: string;
+  updated_at: string;
+  last_login_at: string;
+}
+
+export interface AuthOauthStateRow {
+  state: string;
+  code_verifier: string;
+  redirect_uri: string;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
 }

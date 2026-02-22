@@ -1,7 +1,9 @@
 import {
+  createAuthOauthStateRepository,
   createAuthSessionRepository,
   createDiaryRepository,
   createDiaryRevisionRepository,
+  createUserIdentityRepository,
   createUserRepository,
 } from "@future-diary/db";
 import { defaultUserModel, parseUserModelInput, parseUserModelJson, serializeUserModelJson, type UserModelV1 } from "@future-diary/core";
@@ -48,6 +50,18 @@ const authSessionCreateRequestSchema = z.object({
   timezone: z.string().min(1).default("Asia/Tokyo"),
 });
 
+const googleAuthStartRequestSchema = z.object({
+  redirectUri: z.string().url(),
+});
+
+const googleAuthExchangeRequestSchema = z.object({
+  code: z.string().min(1),
+  state: z.string().min(1),
+  redirectUri: z.string().url(),
+  timezone: z.string().min(1).default("Asia/Tokyo"),
+  legacyAccessToken: z.string().min(1).optional(),
+});
+
 const userModelUpdateRequestSchema = z.object({
   model: z.unknown(),
 });
@@ -77,6 +91,8 @@ type WorkerBindings = {
   APP_ENV?: string;
   CORS_ALLOW_ORIGINS?: string;
   DB?: D1Database;
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
   AI?: Ai;
   VECTOR_INDEX?: Vectorize;
   AI_EMBEDDING_MODEL?: string;
@@ -90,6 +106,8 @@ type WorkerBindings = {
 type AuthContext = {
   userId: string;
   sessionId: string;
+  sessionKind: "legacy" | "google";
+  sessionExpiresAt: string | null;
 };
 
 const app = new Hono<{ Bindings: WorkerBindings; Variables: { auth: AuthContext } }>();
@@ -195,6 +213,44 @@ const generateAccessToken = (byteLength = 32): string => {
   return base64UrlEncode(bytes);
 };
 
+const googleAuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
+const googleTokenEndpoint = "https://oauth2.googleapis.com/token";
+const googleUserInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo";
+
+const toSqlDateTime = (date: Date): string => date.toISOString().slice(0, 19).replace("T", " ");
+
+const addMsToNowSqlDateTime = (ms: number): string => toSqlDateTime(new Date(Date.now() + ms));
+
+const sha256Base64Url = async (input: string): Promise<string> => {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return base64UrlEncode(new Uint8Array(digest));
+};
+
+const isSafeRedirectUri = (redirectUri: string, requestOrigin: string | undefined): boolean => {
+  let parsed: URL;
+  try {
+    parsed = new URL(redirectUri);
+  } catch {
+    return false;
+  }
+
+  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+    return false;
+  }
+
+  if (!requestOrigin) {
+    return true;
+  }
+
+  try {
+    const origin = new URL(requestOrigin);
+    return parsed.origin === origin.origin;
+  } catch {
+    return false;
+  }
+};
+
 const parseBearerToken = (headerValue: string | undefined | null): string | null => {
   if (!headerValue) {
     return null;
@@ -241,7 +297,7 @@ const requireAuth = async (context: any, next: any): Promise<Response | void> =>
 
   const tokenHash = await sha256Hex(token);
   const sessionRepo = createAuthSessionRepository(db);
-  const session = await sessionRepo.findByTokenHash(tokenHash);
+  const session = await sessionRepo.findActiveByTokenHash(tokenHash);
 
   if (!session) {
     return context.json(
@@ -256,7 +312,15 @@ const requireAuth = async (context: any, next: any): Promise<Response | void> =>
     );
   }
 
-  context.set("auth", { userId: session.userId, sessionId: session.id } satisfies AuthContext);
+  context.set(
+    "auth",
+    {
+      userId: session.userId,
+      sessionId: session.id,
+      sessionKind: session.sessionKind,
+      sessionExpiresAt: session.expiresAt,
+    } satisfies AuthContext,
+  );
 
   const executionCtx = getOptionalExecutionContext(context);
   if (executionCtx?.waitUntil) {
@@ -274,6 +338,377 @@ app.get("/health", (context) =>
     service: "future-diary-api",
   }),
 );
+
+app.post("/v1/auth/google/start", async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = googleAuthStartRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const clientId = context.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
+  if (!clientId) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "GOOGLE_OAUTH_CLIENT_ID is required",
+        },
+      },
+      500,
+    );
+  }
+
+  if (!isSafeRedirectUri(parsed.data.redirectUri, context.req.header("origin") ?? undefined)) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "INVALID_REDIRECT_URI",
+          message: "redirectUri is not allowed",
+        },
+      },
+      400,
+    );
+  }
+
+  const oauthStateRepo = createAuthOauthStateRepository(context.env.DB);
+  const state = generateAccessToken(24);
+  const codeVerifier = generateAccessToken(48);
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const expiresAt = addMsToNowSqlDateTime(10 * 60 * 1000);
+
+  await oauthStateRepo.createState({
+    state,
+    codeVerifier,
+    redirectUri: parsed.data.redirectUri,
+    expiresAt,
+  });
+
+  const executionCtx = getOptionalExecutionContext(context);
+  if (executionCtx?.waitUntil) {
+    executionCtx.waitUntil(oauthStateRepo.deleteExpiredStates().catch(() => undefined));
+  }
+
+  const authorizationUrl = new URL(googleAuthEndpoint);
+  authorizationUrl.searchParams.set("client_id", clientId);
+  authorizationUrl.searchParams.set("redirect_uri", parsed.data.redirectUri);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("scope", "openid email profile");
+  authorizationUrl.searchParams.set("state", state);
+  authorizationUrl.searchParams.set("code_challenge", codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+  authorizationUrl.searchParams.set("prompt", "select_account");
+
+  return context.json({
+    ok: true,
+    authorizationUrl: authorizationUrl.toString(),
+    stateExpiresAt: expiresAt,
+  });
+});
+
+app.post("/v1/auth/google/exchange", async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = googleAuthExchangeRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const clientId = context.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
+  if (!clientId) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "GOOGLE_OAUTH_CLIENT_ID is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const oauthStateRepo = createAuthOauthStateRepository(context.env.DB);
+  const oauthState = await oauthStateRepo.consumeState(parsed.data.state);
+  if (!oauthState || oauthState.redirectUri !== parsed.data.redirectUri) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "INVALID_OAUTH_STATE",
+          message: "OAuth state is invalid or expired",
+        },
+      },
+      400,
+    );
+  }
+
+  const tokenRequestBody = new URLSearchParams();
+  tokenRequestBody.set("code", parsed.data.code);
+  tokenRequestBody.set("client_id", clientId);
+  tokenRequestBody.set("redirect_uri", parsed.data.redirectUri);
+  tokenRequestBody.set("grant_type", "authorization_code");
+  tokenRequestBody.set("code_verifier", oauthState.codeVerifier);
+
+  const clientSecret = context.env.GOOGLE_OAUTH_CLIENT_SECRET?.trim();
+  if (clientSecret) {
+    tokenRequestBody.set("client_secret", clientSecret);
+  }
+
+  let tokenResponse: Response;
+  try {
+    tokenResponse = await fetch(googleTokenEndpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body: tokenRequestBody.toString(),
+    });
+  } catch (error) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GOOGLE_TOKEN_EXCHANGE_FAILED",
+          message: error instanceof Error ? error.message : "Google token exchange request failed",
+        },
+      },
+      502,
+    );
+  }
+
+  if (!tokenResponse.ok) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GOOGLE_TOKEN_EXCHANGE_FAILED",
+          message: `Google token exchange failed (${tokenResponse.status})`,
+        },
+      },
+      401,
+    );
+  }
+
+  const tokenJson = (await tokenResponse.json().catch(() => null)) as
+    | { access_token?: string }
+    | null;
+  const googleAccessToken = tokenJson?.access_token;
+  if (!googleAccessToken) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GOOGLE_TOKEN_EXCHANGE_FAILED",
+          message: "Google access token is missing",
+        },
+      },
+      401,
+    );
+  }
+
+  let profileResponse: Response;
+  try {
+    profileResponse = await fetch(googleUserInfoEndpoint, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${googleAccessToken}`,
+      },
+    });
+  } catch (error) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GOOGLE_USERINFO_FAILED",
+          message: error instanceof Error ? error.message : "Google userinfo request failed",
+        },
+      },
+      502,
+    );
+  }
+
+  if (!profileResponse.ok) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GOOGLE_USERINFO_FAILED",
+          message: `Google userinfo failed (${profileResponse.status})`,
+        },
+      },
+      401,
+    );
+  }
+
+  const profile = (await profileResponse.json().catch(() => null)) as
+    | {
+        sub?: string;
+        email?: string;
+        email_verified?: boolean;
+        name?: string;
+        picture?: string;
+      }
+    | null;
+
+  const providerSubject = profile?.sub?.trim() ?? "";
+  if (providerSubject.length === 0) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GOOGLE_USERINFO_FAILED",
+          message: "Google subject is missing",
+        },
+      },
+      401,
+    );
+  }
+
+  const userRepo = createUserRepository(context.env.DB);
+  const identityRepo = createUserIdentityRepository(context.env.DB);
+  const sessionRepo = createAuthSessionRepository(context.env.DB);
+  const googleIdentity = await identityRepo.findByProviderSubject("google", providerSubject);
+
+  let legacySession: Awaited<ReturnType<typeof sessionRepo.findActiveByTokenHash>> = null;
+  const legacyToken = parsed.data.legacyAccessToken?.trim();
+  if (legacyToken) {
+    const legacyHash = await sha256Hex(legacyToken);
+    const candidate = await sessionRepo.findActiveByTokenHash(legacyHash);
+    if (candidate?.sessionKind === "legacy") {
+      legacySession = candidate;
+    }
+  }
+
+  const googleUserId = googleIdentity?.userId ?? null;
+  const legacyUserId = legacySession?.userId ?? null;
+
+  if (googleUserId && legacyUserId && googleUserId !== legacyUserId) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "ACCOUNT_CONFLICT",
+          message: "This Google account is already linked to another user",
+        },
+      },
+      409,
+    );
+  }
+
+  const userId = googleUserId ?? legacyUserId ?? crypto.randomUUID();
+
+  await userRepo.upsertUser({
+    id: userId,
+    timezone: parsed.data.timezone,
+  });
+
+  const linkedIdentity = await identityRepo.upsertIdentity({
+    id: googleIdentity?.id ?? crypto.randomUUID(),
+    userId,
+    provider: "google",
+    providerSubject,
+    email: profile?.email ?? null,
+    emailVerified: profile?.email_verified === true,
+    displayName: profile?.name ?? null,
+    avatarUrl: profile?.picture ?? null,
+  });
+
+  if (legacySession && legacySession.userId === userId) {
+    await sessionRepo.revokeSession(legacySession.id);
+  }
+
+  const accessToken = generateAccessToken();
+  const tokenHash = await sha256Hex(accessToken);
+  const expiresAt = addMsToNowSqlDateTime(30 * 24 * 60 * 60 * 1000);
+
+  await sessionRepo.createSession({
+    id: crypto.randomUUID(),
+    userId,
+    tokenHash,
+    sessionKind: "google",
+    expiresAt,
+  });
+
+  const user = await userRepo.findById(userId);
+  if (!user) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "PERSIST_FAILED",
+          message: "User could not be persisted",
+        },
+      },
+      500,
+    );
+  }
+
+  return context.json({
+    ok: true,
+    accessToken,
+    user: {
+      id: user.id,
+      timezone: user.timezone,
+      email: linkedIdentity.email,
+      displayName: linkedIdentity.displayName,
+      avatarUrl: linkedIdentity.avatarUrl,
+      authProvider: "google" as const,
+    },
+    session: {
+      kind: "google" as const,
+      expiresAt,
+    },
+    migrated: legacySession?.userId === userId,
+  });
+});
 
 app.post("/v1/auth/session", async (context) => {
   const payload = await context.req.json().catch(() => null);
@@ -311,19 +746,35 @@ app.post("/v1/auth/session", async (context) => {
 
   const accessToken = generateAccessToken();
   const tokenHash = await sha256Hex(accessToken);
+  const expiresAt = addMsToNowSqlDateTime(30 * 24 * 60 * 60 * 1000);
 
   const userRepo = createUserRepository(db);
   const sessionRepo = createAuthSessionRepository(db);
 
   await userRepo.upsertUser({ id: userId, timezone });
-  await sessionRepo.createSession({ id: crypto.randomUUID(), userId, tokenHash });
+  await sessionRepo.createSession({
+    id: crypto.randomUUID(),
+    userId,
+    tokenHash,
+    sessionKind: "legacy",
+    expiresAt,
+  });
 
   return context.json({
     ok: true,
+    deprecated: true,
+    migration: {
+      message: "Use /v1/auth/google/start and /v1/auth/google/exchange for Google sign-in",
+    },
     accessToken,
     user: {
       id: userId,
       timezone,
+      authProvider: "legacy" as const,
+    },
+    session: {
+      kind: "legacy" as const,
+      expiresAt,
     },
   });
 });
@@ -346,6 +797,7 @@ app.get("/v1/auth/me", requireAuth, async (context) => {
   }
 
   const userRepo = createUserRepository(db);
+  const identityRepo = createUserIdentityRepository(db);
   const user = await userRepo.findById(auth.userId);
 
   if (!user) {
@@ -361,19 +813,43 @@ app.get("/v1/auth/me", requireAuth, async (context) => {
     );
   }
 
+  const identity = await identityRepo.findByUserIdAndProvider(user.id, "google");
+
   return context.json({
     ok: true,
     user: {
       id: user.id,
       timezone: user.timezone,
+      email: identity?.email ?? null,
+      displayName: identity?.displayName ?? null,
+      avatarUrl: identity?.avatarUrl ?? null,
+      authProvider: identity ? "google" : "legacy",
+      migrationRequired: auth.sessionKind === "legacy" && identity === null,
+    },
+    session: {
+      kind: auth.sessionKind,
+      expiresAt: auth.sessionExpiresAt,
     },
   });
 });
 
 app.post("/v1/auth/logout", requireAuth, async (context) => {
-  // Keep access keys reusable across devices/sessions.
-  // Web logout should clear local credentials, not revoke the server-side key.
-  context.get("auth");
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const auth = context.get("auth") as AuthContext;
+  const sessionRepo = createAuthSessionRepository(context.env.DB);
+  await sessionRepo.revokeSession(auth.sessionId);
   return context.json({ ok: true });
 });
 

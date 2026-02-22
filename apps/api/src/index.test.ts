@@ -40,8 +40,34 @@ const createInMemoryD1 = () => {
     id: string;
     user_id: string;
     token_hash: string;
+    session_kind: "legacy" | "google";
+    expires_at: string | null;
+    revoked_at: string | null;
     created_at: string;
     last_used_at: string;
+  };
+
+  type UserIdentityRow = {
+    id: string;
+    user_id: string;
+    provider: string;
+    provider_subject: string;
+    email: string | null;
+    email_verified: number;
+    display_name: string | null;
+    avatar_url: string | null;
+    created_at: string;
+    updated_at: string;
+    last_login_at: string;
+  };
+
+  type AuthOauthStateRow = {
+    state: string;
+    code_verifier: string;
+    redirect_uri: string;
+    created_at: string;
+    expires_at: string;
+    used_at: string | null;
   };
 
   const now = () => new Date().toISOString();
@@ -49,6 +75,9 @@ const createInMemoryD1 = () => {
   const entries = new Map<string, DiaryRow>();
   const sessions = new Map<string, AuthSessionRow>();
   const sessionIdByTokenHash = new Map<string, string>();
+  const identities = new Map<string, UserIdentityRow>();
+  const identityIdByProviderSubject = new Map<string, string>();
+  const oauthStates = new Map<string, AuthOauthStateRow>();
   const revisions: DiaryEntryRevisionRow[] = [];
 
   const entryKey = (userId: string, date: string) => `${userId}:${date}`;
@@ -77,7 +106,58 @@ const createInMemoryD1 = () => {
           if (query.includes("FROM auth_sessions") && query.includes("WHERE token_hash = ?")) {
             const [tokenHash] = bound as [string];
             const sessionId = sessionIdByTokenHash.get(tokenHash);
-            return (sessionId ? sessions.get(sessionId) ?? null : null) as T | null;
+            const session = sessionId ? sessions.get(sessionId) ?? null : null;
+
+            if (!session) {
+              return null;
+            }
+
+            const requiresActive = query.includes("revoked_at IS NULL");
+            if (!requiresActive) {
+              return session as T | null;
+            }
+
+            if (session.revoked_at !== null) {
+              return null;
+            }
+
+            if (session.expires_at && Date.parse(session.expires_at) <= Date.now()) {
+              return null;
+            }
+
+            return session as T | null;
+          }
+          if (
+            query.includes("FROM user_identities") &&
+            query.includes("WHERE provider = ? AND provider_subject = ?")
+          ) {
+            const [provider, providerSubject] = bound as [string, string];
+            const key = `${provider}:${providerSubject}`;
+            const identityId = identityIdByProviderSubject.get(key);
+            return (identityId ? identities.get(identityId) ?? null : null) as T | null;
+          }
+          if (
+            query.includes("FROM user_identities") &&
+            query.includes("WHERE user_id = ? AND provider = ?")
+          ) {
+            const [userId, provider] = bound as [string, string];
+            for (const identity of identities.values()) {
+              if (identity.user_id === userId && identity.provider === provider) {
+                return identity as T | null;
+              }
+            }
+            return null;
+          }
+          if (
+            query.includes("FROM auth_oauth_states") &&
+            query.includes("WHERE state = ? AND used_at = ?")
+          ) {
+            const [state, usedAt] = bound as [string, string];
+            const row = oauthStates.get(state);
+            if (!row || row.used_at !== usedAt) {
+              return null;
+            }
+            return row as T | null;
           }
           return null;
         },
@@ -127,17 +207,73 @@ const createInMemoryD1 = () => {
           }
 
           if (query.includes("INSERT INTO auth_sessions")) {
-            const [id, userId, tokenHash] = bound as [string, string, string];
+            const [id, userId, tokenHash, sessionKind, expiresAt] = bound as [
+              string,
+              string,
+              string,
+              "legacy" | "google",
+              string | null,
+            ];
 
             sessions.set(id, {
               id,
               user_id: userId,
               token_hash: tokenHash,
+              session_kind: sessionKind ?? "legacy",
+              expires_at: expiresAt,
+              revoked_at: null,
               created_at: now(),
               last_used_at: now(),
             });
             sessionIdByTokenHash.set(tokenHash, id);
 
+            return { success: true };
+          }
+
+          if (query.includes("INSERT INTO user_identities")) {
+            const [id, userId, provider, providerSubject, email, emailVerified, displayName, avatarUrl] = bound as [
+              string,
+              string,
+              string,
+              string,
+              string | null,
+              number,
+              string | null,
+              string | null,
+            ];
+            const key = `${provider}:${providerSubject}`;
+            const existingId = identityIdByProviderSubject.get(key);
+            const existing = existingId ? identities.get(existingId) : null;
+
+            const next: UserIdentityRow = {
+              id: existing?.id ?? id,
+              user_id: userId,
+              provider,
+              provider_subject: providerSubject,
+              email,
+              email_verified: emailVerified,
+              display_name: displayName,
+              avatar_url: avatarUrl,
+              created_at: existing?.created_at ?? now(),
+              updated_at: now(),
+              last_login_at: now(),
+            };
+
+            identities.set(next.id, next);
+            identityIdByProviderSubject.set(key, next.id);
+            return { success: true };
+          }
+
+          if (query.includes("INSERT INTO auth_oauth_states")) {
+            const [state, codeVerifier, redirectUri, expiresAt] = bound as [string, string, string, string];
+            oauthStates.set(state, {
+              state,
+              code_verifier: codeVerifier,
+              redirect_uri: redirectUri,
+              created_at: now(),
+              expires_at: expiresAt,
+              used_at: null,
+            });
             return { success: true };
           }
 
@@ -192,6 +328,30 @@ const createInMemoryD1 = () => {
               });
             }
 
+            return { success: true };
+          }
+
+          if (query.includes("UPDATE auth_sessions SET revoked_at")) {
+            const [sessionId] = bound as [string];
+            const existing = sessions.get(sessionId);
+            if (existing) {
+              sessions.set(sessionId, {
+                ...existing,
+                revoked_at: now(),
+              });
+            }
+            return { success: true };
+          }
+
+          if (query.includes("UPDATE auth_oauth_states") && query.includes("SET used_at = ?")) {
+            const [usedAt, state] = bound as [string, string];
+            const existing = oauthStates.get(state);
+            if (existing && existing.used_at === null && Date.parse(existing.expires_at) > Date.now()) {
+              oauthStates.set(state, {
+                ...existing,
+                used_at: usedAt,
+              });
+            }
             return { success: true };
           }
 
@@ -358,6 +518,15 @@ const createInMemoryD1 = () => {
             return { success: true };
           }
 
+          if (query.includes("DELETE FROM auth_oauth_states") && query.includes("expires_at <= datetime('now')")) {
+            for (const [state, oauthState] of oauthStates.entries()) {
+              if (Date.parse(oauthState.expires_at) <= Date.now()) {
+                oauthStates.delete(state);
+              }
+            }
+            return { success: true };
+          }
+
           if (query.includes("DELETE FROM diary_entries") && query.includes("WHERE user_id = ? AND date = ?")) {
             const [userId, date] = bound as [string, string];
             entries.delete(entryKey(userId, date));
@@ -379,6 +548,35 @@ const createInMemoryD1 = () => {
           if (query.includes("DELETE FROM users") && query.includes("WHERE id = ?")) {
             const [userId] = bound as [string];
             users.delete(userId);
+
+            const sessionIdsToDelete: string[] = [];
+            for (const session of sessions.values()) {
+              if (session.user_id === userId) {
+                sessionIdsToDelete.push(session.id);
+              }
+            }
+            for (const sessionId of sessionIdsToDelete) {
+              const session = sessions.get(sessionId);
+              if (session) {
+                sessions.delete(sessionId);
+                sessionIdByTokenHash.delete(session.token_hash);
+              }
+            }
+
+            const identityIdsToDelete: string[] = [];
+            for (const identity of identities.values()) {
+              if (identity.user_id === userId) {
+                identityIdsToDelete.push(identity.id);
+              }
+            }
+            for (const identityId of identityIdsToDelete) {
+              const identity = identities.get(identityId);
+              if (identity) {
+                identities.delete(identityId);
+                identityIdByProviderSubject.delete(`${identity.provider}:${identity.provider_subject}`);
+              }
+            }
+
             return { success: true };
           }
 
@@ -405,7 +603,7 @@ const createInMemoryD1 = () => {
 
       return statement;
     },
-    __data: { users, entries, revisions },
+    __data: { users, entries, revisions, sessions, identities, oauthStates },
   };
 };
 
@@ -529,7 +727,7 @@ describe("future-diary-api", () => {
     expect(meJson.user?.timezone).toBe("Asia/Tokyo");
   });
 
-  test("POST /v1/auth/logout keeps access token reusable for later login", async () => {
+  test("POST /v1/auth/logout revokes current access token", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };
     const accessToken = await createAuthSession(env);
@@ -562,7 +760,251 @@ describe("future-diary-api", () => {
       },
       env,
     );
-    expect(afterResponse.status).toBe(200);
+    expect(afterResponse.status).toBe(401);
+  });
+
+  test("Google OAuth start/exchange creates google session and user identity", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+
+      if (url === "https://oauth2.googleapis.com/token") {
+        return new Response(JSON.stringify({ access_token: "google-access-token" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url === "https://openidconnect.googleapis.com/v1/userinfo") {
+        const authHeader = init?.headers ? new Headers(init.headers as HeadersInit).get("authorization") : null;
+
+        if (authHeader !== "Bearer google-access-token") {
+          return new Response("unauthorized", { status: 401 });
+        }
+
+        return new Response(
+          JSON.stringify({
+            sub: "google-sub-001",
+            email: "sample@example.com",
+            email_verified: true,
+            name: "Sample User",
+            picture: "https://example.com/avatar.png",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      return await originalFetch(input, init);
+    };
+
+    try {
+      const db = createInMemoryD1();
+      const env = {
+        DB: db as unknown as D1Database,
+        GOOGLE_OAUTH_CLIENT_ID: "google-client-id",
+      };
+
+      const startResponse = await app.request(
+        "/v1/auth/google/start",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://127.0.0.1:5173",
+          },
+          body: JSON.stringify({
+            redirectUri: "http://127.0.0.1:5173",
+          }),
+        },
+        env,
+      );
+
+      const startJson = (await startResponse.json()) as {
+        ok: boolean;
+        authorizationUrl?: string;
+      };
+
+      expect(startResponse.status).toBe(200);
+      expect(startJson.ok).toBe(true);
+      expect(typeof startJson.authorizationUrl).toBe("string");
+
+      const authorizationUrl = new URL(startJson.authorizationUrl as string);
+      expect(authorizationUrl.origin).toBe("https://accounts.google.com");
+      expect(authorizationUrl.searchParams.get("client_id")).toBe("google-client-id");
+
+      const state = authorizationUrl.searchParams.get("state");
+      expect(typeof state).toBe("string");
+
+      const exchangeResponse = await app.request(
+        "/v1/auth/google/exchange",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            code: "google-auth-code",
+            state,
+            redirectUri: "http://127.0.0.1:5173",
+            timezone: "Asia/Tokyo",
+          }),
+        },
+        env,
+      );
+
+      const exchangeJson = (await exchangeResponse.json()) as {
+        ok: boolean;
+        accessToken?: string;
+        user?: {
+          id?: string;
+          authProvider?: string;
+          email?: string;
+          displayName?: string;
+        };
+        session?: { kind?: string };
+      };
+
+      expect(exchangeResponse.status).toBe(200);
+      expect(exchangeJson.ok).toBe(true);
+      expect(typeof exchangeJson.accessToken).toBe("string");
+      expect(exchangeJson.user?.authProvider).toBe("google");
+      expect(exchangeJson.user?.email).toBe("sample@example.com");
+      expect(exchangeJson.user?.displayName).toBe("Sample User");
+      expect(exchangeJson.session?.kind).toBe("google");
+
+      const meResponse = await app.request(
+        "/v1/auth/me",
+        {
+          headers: authJsonHeaders(exchangeJson.accessToken as string),
+        },
+        env,
+      );
+
+      const meJson = (await meResponse.json()) as {
+        ok: boolean;
+        user?: { authProvider?: string; email?: string };
+        session?: { kind?: string };
+      };
+
+      expect(meResponse.status).toBe(200);
+      expect(meJson.ok).toBe(true);
+      expect(meJson.user?.authProvider).toBe("google");
+      expect(meJson.user?.email).toBe("sample@example.com");
+      expect(meJson.session?.kind).toBe("google");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("Google exchange links legacy user when legacy token is provided", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+
+      if (url === "https://oauth2.googleapis.com/token") {
+        return new Response(JSON.stringify({ access_token: "legacy-google-access-token" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url === "https://openidconnect.googleapis.com/v1/userinfo") {
+        const authHeader = init?.headers ? new Headers(init.headers as HeadersInit).get("authorization") : null;
+
+        if (authHeader !== "Bearer legacy-google-access-token") {
+          return new Response("unauthorized", { status: 401 });
+        }
+
+        return new Response(
+          JSON.stringify({
+            sub: "google-sub-legacy-link",
+            email: "legacy@example.com",
+            email_verified: true,
+            name: "Legacy Linked",
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      return await originalFetch(input, init);
+    };
+
+    try {
+      const db = createInMemoryD1();
+      const env = {
+        DB: db as unknown as D1Database,
+        GOOGLE_OAUTH_CLIENT_ID: "google-client-id",
+      };
+
+      const legacyCreateResponse = await app.request(
+        "/v1/auth/session",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ timezone: "Asia/Tokyo" }),
+        },
+        env,
+      );
+      const legacyCreateJson = (await legacyCreateResponse.json()) as {
+        ok: boolean;
+        accessToken?: string;
+        user?: { id?: string };
+      };
+      expect(legacyCreateResponse.status).toBe(200);
+      expect(legacyCreateJson.ok).toBe(true);
+
+      const legacyToken = legacyCreateJson.accessToken as string;
+      const legacyUserId = legacyCreateJson.user?.id as string;
+
+      const startResponse = await app.request(
+        "/v1/auth/google/start",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            origin: "http://127.0.0.1:5173",
+          },
+          body: JSON.stringify({ redirectUri: "http://127.0.0.1:5173" }),
+        },
+        env,
+      );
+      const startJson = (await startResponse.json()) as { authorizationUrl: string };
+      const state = new URL(startJson.authorizationUrl).searchParams.get("state");
+
+      const exchangeResponse = await app.request(
+        "/v1/auth/google/exchange",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            code: "google-auth-code",
+            state,
+            redirectUri: "http://127.0.0.1:5173",
+            timezone: "Asia/Tokyo",
+            legacyAccessToken: legacyToken,
+          }),
+        },
+        env,
+      );
+
+      const exchangeJson = (await exchangeResponse.json()) as {
+        ok: boolean;
+        migrated?: boolean;
+        user?: { id?: string; authProvider?: string };
+      };
+
+      expect(exchangeResponse.status).toBe(200);
+      expect(exchangeJson.ok).toBe(true);
+      expect(exchangeJson.migrated).toBe(true);
+      expect(exchangeJson.user?.id).toBe(legacyUserId);
+      expect(exchangeJson.user?.authProvider).toBe("google");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("POST /v1/future-diary/draft returns generated draft and caches it", async () => {
