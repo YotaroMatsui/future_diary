@@ -23,6 +23,7 @@ coverage/
 # Local work logs
 .task/*
 !.task/tmp/
+.task/tmp/*
 !.task/tmp/yyyymmddhhmm-task_name.md
 
 # Scratch area
