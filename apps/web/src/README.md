@@ -1,265 +1,62 @@
 # apps/web/src
 
-`apps/web/src` は 未来日記 UI の実装を保持し、`main.tsx` で起動、`App.tsx` で生成/編集/保存/確定/履歴閲覧（カレンダー表示/ページング含む）を操作し、`api.ts` で通信境界、`app.css` でスタイルを提供する。
+`apps/web/src` は Future Diary のフロント実装を保持する。`App.tsx` が Google認証・hashルーティング・生成インジケーター・typewriter表示・カレンダー選択・本文自動保存を管理し、`api.ts` が HTTP 境界、`ui-*.tsx` が shadcnベースのUIプリミティブを提供する。
 
 - パス: `apps/web/src/README.md`
 - 状態: Implemented
 - 種別（Profile）: src-module
 - 関連:
   - See: `../README.md`
-- 注意:
-  - accessToken/timezone は localStorage に保存する（accessToken は秘密情報）。
-  - 初回発行時は accessToken を modal 表示し、copy/reveal で保存を促す。
-
-<details><summary>目次</summary>
-
-- [役割](#役割)
-- [スコープ](#スコープ)
-- [ローカル開発](#ローカル開発)
-- [ディレクトリ構成](#ディレクトリ構成)
-- [公開インタフェース](#公開インタフェース)
-- [契約と検証](#契約と検証)
-- [設計ノート](#設計ノート)
-- [品質](#品質)
-- [内部](#内部)
-
-</details>
 
 ## 役割
 
-- UI root + diary editor + API client の実装。
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/web/src/main.tsx:12` — mount。
-- [E2] `apps/web/src/App.tsx:807` — draft auto load。
-- [E3] `apps/web/src/api.ts:65` — fetch boundary。
-</details>
+- `main.tsx`: React root mount。
+- `App.tsx`: `#/login` / `#/diary` 遷移、編集UI、生成状態表示、typewriter、オートセーブ。
+- `api.ts`: 型付きAPIクライアント。
+- `ui-*.tsx` + `utils.ts`: shadcn style の最小UIプリミティブ。
+- `index.css`: Tailwind v4 + shadcn Nova tokens。
 
 ## スコープ
 
 - 対象（In scope）:
-  - 未来日記（下書き）の生成/編集/保存/確定 UI
-  - 履歴閲覧 UI
-  - 通信境界（fetch client）
-  - スタイル（`app.css`）
+  - Google OAuth 開始/交換、セッション復元、ログアウト
+  - 日記の生成ポーリング、編集、自動保存、再生成（内部は削除API利用）
+  - カレンダー選択による日付切り替え、記入済み/未記入マーカー表示
 - 対象外（Non-goals）:
-  - 外部IdP連携などのフル機能認証 UI
-- 委譲（See）:
-  - See: `../README.md`
-- 互換性:
-  - N/A
-- 依存方向:
-  - 許可:
-    - src内 import
-  - 禁止:
-    - api source import
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/web/src/App.tsx:179`
-- [E2] `apps/web/src/api.ts:147`
-- [E3] `apps/web/src/app.css:71`
-</details>
-
-## ローカル開発
-
-- 依存インストール: `make install`
-- 環境変数: `../.env.example`
-- Google OAuth: `VITE_GOOGLE_AUTH_REDIRECT_URI` を設定し、Google Cloud Console の承認済みリダイレクト URI と一致させる。
-- 起動: `make dev-web`
-- 確認: browser rendering
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/web/package.json:6`
-</details>
+  - ローカルセッション作成
+  - 保存/確定ボタン
+  - 履歴一覧UI、generated/cachedなど技術メタ情報の説明UI
 
 ## ディレクトリ構成
 
 ```text
 .
 └── apps/web/src/
-    ├── main.tsx                 # bootstrap
-    ├── App.tsx                  # view
-    ├── api.ts                   # fetch client
-    ├── app.css                  # styling
-    └── README.md                # この文書
+    ├── App.tsx                 # 認証・編集・カレンダーの画面ロジック
+    ├── api.ts                  # HTTP client + response types
+    ├── index.css               # tailwind/shadcn design tokens
+    ├── main.tsx                # React entrypoint
+    ├── ui-badge.tsx            # Badge primitive
+    ├── ui-button.tsx           # Button primitive
+    ├── ui-card.tsx             # Card primitives
+    ├── ui-input.tsx            # Input primitive
+    ├── ui-separator.tsx        # Separator primitive
+    ├── ui-textarea.tsx         # Textarea primitive
+    ├── utils.ts                # class merge helper
+    └── README.md               # この文書
 ```
-
-## 公開インタフェース
-
-### 提供するもの / 提供しないもの
-
-- 提供:
-  - `App`
-  - diary API client（`fetchFutureDiaryDraft` / `saveDiaryEntry` / `confirmDiaryEntry` / `listDiaryEntries` / `deleteDiaryEntry`）
-  - user model client（`fetchUserModel` / `updateUserModel` / `resetUserModel`）
-  - auth client（`startGoogleAuth` / `exchangeGoogleAuth` / `fetchAuthMe` / `logout` / `deleteUser`）
-- 非提供:
-  - shared UI primitives
-
-### エントリポイント / エクスポート（SSOT）
-
-| 公開シンボル  | 種別      | 定義元    | 目的           | 根拠                     |
-| ------------- | --------- | --------- | -------------- | ------------------------ |
-| `App`                 | component | `App.tsx` | UI root | `apps/web/src/App.tsx:179` |
-| `fetchFutureDiaryDraft` | function  | `api.ts`  | draft 取得/生成 | `apps/web/src/api.ts:147` |
-| `startGoogleAuth`       | function  | `api.ts`  | OAuth URL 取得 | `apps/web/src/api.ts` |
-| `exchangeGoogleAuth`    | function  | `api.ts`  | OAuth code 交換 | `apps/web/src/api.ts` |
-| `fetchAuthMe`           | function  | `api.ts`  | session 検証 | `apps/web/src/api.ts:173` |
-| `fetchUserModel`        | function  | `api.ts`  | user model 取得 | `apps/web/src/api.ts:195` |
-| `updateUserModel`       | function  | `api.ts`  | user model 更新 | `apps/web/src/api.ts:203` |
-| `resetUserModel`        | function  | `api.ts`  | user model 初期化 | `apps/web/src/api.ts:211` |
-| `logout`                | function  | `api.ts`  | session 失効 | `apps/web/src/api.ts` |
-| `saveDiaryEntry`        | function  | `api.ts`  | diary 保存 | `apps/web/src/api.ts:232` |
-| `confirmDiaryEntry`     | function  | `api.ts`  | diary 確定 | `apps/web/src/api.ts:241` |
-| `listDiaryEntries`      | function  | `api.ts`  | 履歴取得 | `apps/web/src/api.ts:253` |
-| `deleteDiaryEntry`      | function  | `api.ts`  | diary 削除 | `apps/web/src/api.ts:264` |
-| `deleteUser`            | function  | `api.ts`  | user 削除 | `apps/web/src/api.ts:267` |
-
-### 使い方（必須）
-
-```ts
-import { App } from "./App";
-```
-
-### 依存ルール
-
-- 許可する import:
-  - `react`, `./api`
-- 禁止する import:
-  - `apps/api/src/*`
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/web/src/App.tsx:1`
-- [E2] `apps/web/src/App.tsx:2`
-</details>
 
 ## 契約と検証
 
-### 契約 SSOT
-
-- API response 型:
-  - `FutureDiaryDraftResponse`
-  - `AuthSessionCreateResponse`
-  - `AuthMeResponse`
-  - `UserModelGetResponse`
-  - `UserModelUpdateResponse`
-  - `UserModelResetResponse`
-  - `DiaryEntrySaveResponse`
-  - `DiaryEntryConfirmResponse`
-  - `DiaryEntriesListResponse`
-  - `DiaryEntryDeleteResponse`
-- `.env`:
-  - `VITE_API_BASE_URL`
-  - `VITE_GOOGLE_AUTH_REDIRECT_URI`（Google Console の redirect URI と一致）
-
-### 検証入口（CI / ローカル）
-
-- [E1] `bun --cwd apps/web run typecheck`
-- [E2] `bun --cwd apps/web run build`
-
-### テスト（根拠として使う場合）
-
-| テストファイル | コマンド                       | 検証内容   | 主要 assertion | 根拠                      |
-| -------------- | ------------------------------ | ---------- | -------------- | ------------------------- |
-| N/A            | `bun --cwd apps/web run build` | bundle成立 | build success  | `apps/web/package.json:8` |
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/web/src/api.ts:1`
-</details>
+- `bun run --cwd apps/web lint`
+- `bun run --cwd apps/web typecheck`
+- `bun run --cwd apps/web build`
+- `bun run --cwd apps/web smoke`
 
 ## 設計ノート
 
-- データ形状:
-  - draft:
-    - auth: `Authorization: Bearer <accessToken>`
-    - request: `{ date, timezone }`
-    - response: `{ ok, draft, meta }`（`meta.generationStatus` が `completed` になるまで polling）
-    - transparency: `draft.sourceFragmentIds`, `draft.keywords`, `meta.generation.userModel`
-  - save:
-    - request: `{ date, body }`
-  - confirm:
-    - request: `{ date }`
-  - delete:
-    - request: `{ date }`
-  - list:
-    - request: `{ onOrBeforeDate, limit }`
-    - usage: 初回読み込み（最新30件） + 旧日付ページング（`onOrBeforeDate` カーソル）
-- 失敗セマンティクス:
-  - 非200は例外として扱い、UI は toast に表示する。
-- メインフロー:
-  - 初回: Google OAuth 開始 -> callback で exchange -> 当日 draft 生成トリガ。
-  - mount -> 当日 draft 生成トリガ -> generationStatus を polling -> editor 表示。
-  - edit -> save -> confirm。
-  - list -> history 表示。
-- I/O 境界:
-  - `fetch`（`api.ts`）
-  - localStorage（`App.tsx`）
-- トレードオフ:
-  - accessToken を localStorage に保持する（XSS リスクは残るため、HttpOnly cookie への移行余地あり）。
-
-```mermaid
-flowchart TD
-  UI["App.tsx"] -->|"call"| CL["api.ts"]
-  CL -->|"boundary(I/O)"| AUTH["/v1/auth/*"]
-  CL -->|"boundary(I/O)"| DRAFT["POST /v1/future-diary/draft"]
-  CL -->|"boundary(I/O)"| SAVE["POST /v1/diary/entry/save"]
-  CL -->|"boundary(I/O)"| CONF["POST /v1/diary/entry/confirm"]
-  CL -->|"boundary(I/O)"| DEL["POST /v1/diary/entry/delete"]
-  CL -->|"boundary(I/O)"| LIST["POST /v1/diary/entries/list"]
-  CL -->|"boundary(I/O)"| USERDEL["POST /v1/user/delete"]
-```
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/web/src/App.tsx:807` — auto load。
-- [E2] `apps/web/src/api.ts:65` — JSON POST boundary。
-- [E3] `apps/web/src/App.tsx` — OAuth callback（`code/state`）交換処理。
-</details>
-
-## 品質
-
-- テスト戦略:
-  - build/typecheck。
-- 主なリスクと対策（3〜7）:
-
-| リスク            | 対策（検証入口） | 根拠                      |
-| ----------------- | ---------------- | ------------------------- |
-| API未起動/到達不能 | 例外を toast へ表示 | `apps/web/src/App.tsx:497` |
-| timezone 入力不正 | Intl 例外を握り潰して local date へfallback | `apps/web/src/App.tsx:61` |
-| 操作ミスで未保存が残る | unsaved/saved をUIに表示 | `apps/web/src/App.tsx:1106` |
-
-<details><summary>根拠（Evidence）</summary>
-
-- [E1] `apps/web/src/api.ts:84`
-</details>
-
-## 内部
-
-<details><summary>品質（関数型プログラミング観点） / OPEN / ISSUE / SUMMARY</summary>
-
-### 品質（関数型プログラミング観点）
-
-| 項目         | 判定 | 理由                   | 根拠                    |
-| ------------ | ---- | ---------------------- | ----------------------- |
-| 副作用の隔離 | YES  | fetch/localStorage を境界へ分離 | `apps/web/src/api.ts:65` |
-
-### [OPEN]
-
-- なし。
-
-### [ISSUE]
-
-- なし。
-
-### [SUMMARY]
-
-- src は 未来日記 UI（生成/編集/保存/確定/履歴）の実装を保持する。
-- 生成の透明性として、used model / keywords / source fragments を表示できる。
-- 履歴 UI は月ナビ付きカレンダーとページング（30件単位の追加読み込み）を提供する。
-
-</details>
+- `loadDraft` が日付単位で draft 取得/生成を実行し、未保存編集中は poll 更新で本文上書きを避ける。
+- `handleEditorBlur` が textarea blur 時に `persistDraft` を呼び出して自動保存する。
+- `startTypewriter` が生成完了直後の本文を1文字ずつ表示する。
+- `loadMonthFilledState` が `listDiaryEntries` を使って当月の記入済み日付を算出し、カレンダーに反映する。
+- 再生成UIは本文エリア右上の wand-sparkles アイコンのみ。
