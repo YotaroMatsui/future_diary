@@ -1,6 +1,6 @@
 # packages/db
 
-`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `DiaryRevisionRepository` / `UserRepository` / `AuthSessionRepository` を提供し、`packages/core::DiaryEntry` への変換と diary/revision/user/session の read/write クエリを担当する。スキーマ契約は `src/migrations/*.sql` と `src/schema.ts` が SSOT。
+`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `DiaryRevisionRepository` / `UserRepository` / `AuthSessionRepository` / `UserIdentityRepository` / `AuthOauthStateRepository` を提供し、`packages/core::DiaryEntry` への変換と diary/revision/user/auth の read/write クエリを担当する。スキーマ契約は `src/migrations/*.sql` と `src/schema.ts` が SSOT。
 
 - パス: `packages/db/README.md`
 - 状態: Implemented
@@ -35,8 +35,9 @@
 - `appendRevision` を提供する（生成/保存/確定のスナップショット保持）。
 - `upsertUser` を提供する（`diary_entries.user_id` の FK を満たすため）。
 - `findById` / `deleteUser` を提供する。
-- `AuthSessionRepository` を提供する（bearer token session の read/write）。
-- migration SQL で `users` / `diary_entries` / `diary_entry_revisions` / `auth_sessions` を定義する。
+- `AuthSessionRepository` を提供する（session_kind / expires_at / revoked_at を含む）。
+- `UserIdentityRepository` と `AuthOauthStateRepository` を提供する（Google identity / OAuth state 管理）。
+- migration SQL で `users` / `diary_entries` / `diary_entry_revisions` / `auth_sessions` / `user_identities` / `auth_oauth_states` を定義する。
 
 <details><summary>根拠（Evidence）</summary>
 
@@ -119,9 +120,12 @@
   - `createDiaryRevisionRepository`
   - `createUserRepository`
   - `createAuthSessionRepository`
+  - `createUserIdentityRepository`
+  - `createAuthOauthStateRepository`
   - `DiaryRow` / `UserRow`
   - `DiaryEntryRevisionRow`
   - `AuthSessionRow`
+  - `UserIdentityRow`
 - 非提供:
   - DB connection lifecycle
 
@@ -133,14 +137,18 @@
 | `createDiaryRevisionRepository` | function  | `src/repository.ts` | revision 追記 | `packages/db/src/repository.ts:303`              |
 | `createUserRepository`  | function  | `src/repository.ts` | D1 user read/write | `packages/db/src/repository.ts:321`              |
 | `createAuthSessionRepository` | function | `src/repository.ts` | D1 auth session | `packages/db/src/repository.ts:367` |
+| `createUserIdentityRepository` | function | `src/repository.ts` | D1 identity read/write | `packages/db/src/repository.ts` |
+| `createAuthOauthStateRepository` | function | `src/repository.ts` | D1 OAuth state read/write | `packages/db/src/repository.ts` |
 | `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:9`                   |
 | `UserRow`               | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:30`                  |
 | `DiaryEntryRevisionRow` | interface | `src/schema.ts`     | revision row契約  | `packages/db/src/schema.ts:22`                  |
 | `AuthSessionRow`        | interface | `src/schema.ts`     | auth session row契約 | `packages/db/src/schema.ts:38`                  |
+| `UserIdentityRow`       | interface | `src/schema.ts`     | user identity row契約 | `packages/db/src/schema.ts`                     |
 | `0001_initial.sql`      | migration | `src/migrations`    | schema初期化      | `packages/db/src/migrations/0001_initial.sql:1` |
 | `0002_diary_entry_revisions.sql` | migration | `src/migrations`    | revision 追加     | `packages/db/src/migrations/0002_diary_entry_revisions.sql:1` |
 | `0003_auth_sessions.sql` | migration | `src/migrations`    | auth session追加  | `packages/db/src/migrations/0003_auth_sessions.sql:1` |
 | `0004_generation_status.sql` | migration | `src/migrations` | generation status追加 | `packages/db/src/migrations/0004_generation_status.sql:1` |
+| `0006_google_auth_identity.sql` | migration | `src/migrations` | Google auth identity/session 拡張 | `packages/db/src/migrations/0006_google_auth_identity.sql:1` |
 
 ### 使い方（必須）
 

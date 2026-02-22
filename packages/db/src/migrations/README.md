@@ -35,6 +35,7 @@
 - [E3] `packages/db/src/migrations/0003_auth_sessions.sql:1`
 - [E4] `packages/db/src/migrations/0004_generation_status.sql:1`
 - [E5] `packages/db/src/migrations/0005_generation_transparency.sql:1`
+- [E6] `packages/db/src/migrations/0006_google_auth_identity.sql:1`
 </details>
 
 ## スコープ
@@ -45,6 +46,7 @@
   - `0003_auth_sessions.sql`
   - `0004_generation_status.sql`
   - `0005_generation_transparency.sql`
+  - `0006_google_auth_identity.sql`
 - 対象外（Non-goals）:
   - query layer
 - 委譲（See）:
@@ -84,6 +86,7 @@
     ├── 0003_auth_sessions.sql   # auth session（bearer token）スキーマ
     ├── 0004_generation_status.sql # generation status/error columns
     ├── 0005_generation_transparency.sql # generation transparency columns
+    ├── 0006_google_auth_identity.sql # Google auth identity + session拡張
     └── README.md                # この文書
 ```
 
@@ -105,6 +108,7 @@
 | `0003_auth_sessions.sql` | SQL contract | `0003_auth_sessions.sql` | auth session 追加 | `packages/db/src/migrations/0003_auth_sessions.sql:1` |
 | `0004_generation_status.sql` | SQL contract | `0004_generation_status.sql` | generation status 追加 | `packages/db/src/migrations/0004_generation_status.sql:1` |
 | `0005_generation_transparency.sql` | SQL contract | `0005_generation_transparency.sql` | generation transparency 追加 | `packages/db/src/migrations/0005_generation_transparency.sql:1` |
+| `0006_google_auth_identity.sql` | SQL contract | `0006_google_auth_identity.sql` | Google OAuth identity/session 拡張 | `packages/db/src/migrations/0006_google_auth_identity.sql:1` |
 
 ### 使い方（必須）
 
@@ -135,6 +139,7 @@ bun run --cwd packages/db migrate-remote
 - `0003_auth_sessions.sql`
 - `0004_generation_status.sql`
 - `0005_generation_transparency.sql`
+- `0006_google_auth_identity.sql`
 
 ### 検証入口（CI / ローカル）
 
@@ -174,6 +179,7 @@ flowchart TD
   SQL3["0003_auth_sessions.sql"] -->|"contract"| AS["auth_sessions"]
   SQL4["0004_generation_status.sql"] -->|"contract"| GS["diary_entries.generation_status"]
   SQL5["0005_generation_transparency.sql"] -->|"contract"| GT["diary_entries.generation_*"]
+  SQL6["0006_google_auth_identity.sql"] -->|"contract"| UI["user_identities / auth_oauth_states / auth_sessions(+columns)"]
 ```
 
 <details><summary>根拠（Evidence）</summary>
@@ -184,6 +190,7 @@ flowchart TD
 - [E4] `packages/db/src/migrations/0003_auth_sessions.sql:1`
 - [E5] `packages/db/src/migrations/0004_generation_status.sql:1`
 - [E6] `packages/db/src/migrations/0005_generation_transparency.sql:1`
+- [E7] `packages/db/src/migrations/0006_google_auth_identity.sql:1`
 </details>
 
 ## 品質
@@ -215,7 +222,7 @@ flowchart TD
 
 - [OPEN][TODO] 追加 migration 設計
   - 背景: 今後の diary仕様拡張
-  - 現状: 初期版 + revision + auth_sessions + generation status + generation transparency 追加まで
+  - 現状: 初期版 + revision + auth_sessions + generation status + generation transparency + Google auth identity 拡張まで
   - 受入条件:
     - 変更ごとに番号付き migration 追加
   - 根拠:

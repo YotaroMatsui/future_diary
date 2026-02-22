@@ -92,13 +92,13 @@
   - HTTP routing
   - 入力検証
   - レスポンス変換
-  - bearer token session による user identity（`/v1/auth/*`）
+  - Google OAuth 2.0 / OIDC + session による user identity（`/v1/auth/*`）
   - D1 への draft 永続化（cache / 冪等）
   - diary entry CRUD（取得/保存/確定/履歴）
   - データ削除（アカウント削除/日記削除）
   - Vectorize retrieval/upsert（optional）
 - 対象外（Non-goals）:
-  - パスワード管理や外部IdP連携などのフル機能認証（MVPは bearer token session）
+  - パスワード管理やマルチIdP統合などのフル機能認証
 - 委譲（See）:
   - See: `packages/core/README.md`
 - 互換性:
@@ -127,6 +127,7 @@
 - 環境変数: `cp apps/api/.dev.vars.example apps/api/.dev.vars`
 - DB: `make dev-api` 起動時にローカル D1 migration を自動適用する（`auth_sessions` を含む）。個別に実行したい場合は `make db-migrate`。
 - CORS: `CORS_ALLOW_ORIGINS` を設定すると allowlist を上書きできる（production は `*` を許可しない）。未設定時の production 既定は `https://future-diary-web.pages.dev` と `https://*.future-diary-web.pages.dev` を許可する。
+- Google OAuth: `.dev.vars` に `GOOGLE_OAUTH_CLIENT_ID`（必須）/ `GOOGLE_OAUTH_CLIENT_SECRET`（任意, confidential client で利用）を設定する。
 - LLM: `.dev.vars` に `OPENAI_API_KEY` を設定すると外部LLM生成が有効になる（未設定時は deterministic）。
 - retrieval: `.dev.vars` の `AI_EMBEDDING_MODEL` で embeddings model を選ぶ（Vectorize は local 未サポートのため、binding を `remote: true` にして検証するか fallback を許容する）。
 - 起動: `make dev-api`
@@ -148,16 +149,22 @@
 code が参照する Secret:
 
 - `APP_ENV`（`/health` の `env` 表示に使用）
+- `GOOGLE_OAUTH_CLIENT_ID`（Google OAuth 認証で必須）
+- `GOOGLE_OAUTH_CLIENT_SECRET`（任意。Google 側で confidential client として使う場合）
 - `OPENAI_API_KEY`（外部LLMで draft 本文を生成する場合。未設定時は deterministic 生成へフォールバック）
 
 ```bash
 bunx wrangler secret put APP_ENV --config apps/api/wrangler.toml
+bunx wrangler secret put GOOGLE_OAUTH_CLIENT_ID --config apps/api/wrangler.toml
+bunx wrangler secret put GOOGLE_OAUTH_CLIENT_SECRET --config apps/api/wrangler.toml
 bunx wrangler secret put OPENAI_API_KEY --config apps/api/wrangler.toml
 ```
 
 入力値:
 
 - `APP_ENV`: `production`
+- `GOOGLE_OAUTH_CLIENT_ID`: Google Cloud OAuth Client ID
+- `GOOGLE_OAUTH_CLIENT_SECRET`: Google Cloud OAuth Client Secret（任意）
 - `OPENAI_API_KEY`: OpenAI の API Key
 
 補足:
@@ -204,6 +211,8 @@ curl https://<wrangler出力のURL>/health
 
 - 提供:
   - `GET /health`
+  - `POST /v1/auth/google/start`
+  - `POST /v1/auth/google/exchange`
   - `POST /v1/auth/session`
   - `GET /v1/auth/me`
   - `POST /v1/auth/logout`
@@ -218,16 +227,18 @@ curl https://<wrangler出力のURL>/health
   - `POST /v1/diary/entries/list`
   - `POST /v1/user/delete`
 - 非提供:
-  - 外部IdP連携やパスワード管理などのフル機能認証
+  - パスワード管理やマルチIdP統合などのフル機能認証
 
 ### エントリポイント / エクスポート（SSOT）
 
 | 公開シンボル                  | 種別           | 定義元         | 目的             | 根拠                       |
 | ----------------------------- | -------------- | -------------- | ---------------- | -------------------------- |
 | `GET /health`                 | HTTP route     | `src/index.ts` | 稼働確認         | `apps/api/src/index.ts:194` |
-| `POST /v1/auth/session`       | HTTP route     | `src/index.ts` | session 作成     | `apps/api/src/index.ts:202` |
-| `GET /v1/auth/me`             | HTTP route     | `src/index.ts` | session 検証     | `apps/api/src/index.ts:255` |
-| `POST /v1/auth/logout`        | HTTP route     | `src/index.ts` | ローカル logout シグナル（server key は保持） | `apps/api/src/index.ts:373` |
+| `POST /v1/auth/google/start`  | HTTP route     | `src/index.ts` | Google OAuth URL 発行（state/PKCE） | `apps/api/src/index.ts` |
+| `POST /v1/auth/google/exchange` | HTTP route   | `src/index.ts` | code交換 + Google profile 同期 + session発行 | `apps/api/src/index.ts` |
+| `POST /v1/auth/session`       | HTTP route     | `src/index.ts` | legacy session 作成（移行互換） | `apps/api/src/index.ts` |
+| `GET /v1/auth/me`             | HTTP route     | `src/index.ts` | session 検証 + provider/profile 取得 | `apps/api/src/index.ts` |
+| `POST /v1/auth/logout`        | HTTP route     | `src/index.ts` | 現在 session の失効 | `apps/api/src/index.ts` |
 | `GET /v1/user/model`          | HTTP route     | `src/index.ts` | user model 取得  | `apps/api/src/index.ts:502` |
 | `POST /v1/user/model`         | HTTP route     | `src/index.ts` | user model 更新  | `apps/api/src/index.ts:541` |
 | `POST /v1/user/model/reset`   | HTTP route     | `src/index.ts` | user model 初期化 | `apps/api/src/index.ts:605` |
@@ -245,9 +256,9 @@ curl https://<wrangler出力のURL>/health
 ### 使い方（必須）
 
 ```bash
-curl -X POST http://127.0.0.1:8787/v1/auth/session \
+curl -X POST http://127.0.0.1:8787/v1/auth/google/start \
   -H 'content-type: application/json' \
-  -d '{"timezone":"Asia/Tokyo"}'
+  -d '{"redirectUri":"http://127.0.0.1:5173"}'
 ```
 
 ```bash
@@ -449,18 +460,17 @@ flowchart TD
   - 根拠:
     - `apps/jobs/src/index.ts:154`
 
-- [OPEN] 外部予定の取り込み（Google Calendar 等）を将来導入する場合の boundary 設計（OAuth/token管理/同意/PII・ログ方針）
-  - 背景: 予定を “断定ではなく入力補助” として下書きに反映したい。
-  - 現状: 未対応。
-
 ### [ISSUE]
 
-- なし。
+- [ISSUE][P2] Google Calendar / Apple Calendar 連携を導入し、予定取得 boundary（OAuth/token管理/同意/PII・ログ方針）を設計・実装する
+  - 背景: 予定を “断定ではなく入力補助” として下書きに反映する。
+  - 現状: 未対応。
 
 ### [SUMMARY]
 
 - API境界は draft 生成と D1 cache まで含めて成立している。
 - diary CRUD（取得/保存/確定/履歴）は D1 の最小 update/list を追加して成立している。
 - poll/cached でも説明可能にするため、生成時に利用した user model snapshot / keywords / sourceFragmentIds を永続化して返却できるようにした。
+- Google OAuth 2.0 / OIDC ログインを実装し、`user_identities` + 期限付き/revocable session（`session_kind`/`expires_at`/`revoked_at`）で認証管理を再設計した。
 
 </details>

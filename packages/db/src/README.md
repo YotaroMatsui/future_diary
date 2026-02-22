@@ -90,6 +90,8 @@
   - `createDiaryRevisionRepository`
   - `createUserRepository`
   - `createAuthSessionRepository`
+  - `createUserIdentityRepository`
+  - `createAuthOauthStateRepository`
   - schema interfaces
 - 非提供:
   - DB lifecycle
@@ -102,6 +104,8 @@
 | `createDiaryRevisionRepository` | function | `repository.ts` | revision 追記 | `packages/db/src/repository.ts:303` |
 | `createUserRepository`  | function | `repository.ts` | user read/write | `packages/db/src/repository.ts:321` |
 | `createAuthSessionRepository`  | function | `repository.ts` | auth session read/write | `packages/db/src/repository.ts:367` |
+| `createUserIdentityRepository` | function | `repository.ts` | identity read/write | `packages/db/src/repository.ts` |
+| `createAuthOauthStateRepository` | function | `repository.ts` | OAuth state read/write | `packages/db/src/repository.ts` |
 
 ### 使い方（必須）
 

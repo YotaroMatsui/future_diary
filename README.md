@@ -255,7 +255,7 @@ flowchart TD
 - [ISSUE][P2] Auth hardening: session 期限/失効/再発行（紛失時）や token の保存方式（localStorage依存の低減）を見直す
   - See: `apps/api/README.md`
   - See: `apps/web/README.md`
-- [ISSUE][P3] 外部予定の取り込み（Google Calendar 等）: 連携/同意/スコープ設計と、予定を “断定ではなく入力補助” として下書きに反映する（任意機能）
+- [ISSUE][P2] 外部予定の取り込み（Google Calendar / Apple Calendar）: 連携/同意/スコープ設計と、予定を “断定ではなく入力補助” として下書きに反映する（任意機能）
   - See: `docs/requirements-ssot.md`
   - See: `apps/api/README.md`
 - [ISSUE][P2] IaC（Terraform）で Workers/Pages/D1/Vectorize/Queues/DO のプロビジョニングを自動化する
@@ -274,7 +274,8 @@ flowchart TD
 - `feat/auth-identity` で bearer token session 認証 + CORS allowlist + データ削除（アカウント/日記）を実装した。
 - `feat/async-generation-orchestration` で Queues + DO lock による生成の非同期化と polling 契約を実装した。
 - `docs/prod-deploy-runbook` で本番デプロイ runbook（Workers/Pages/D1/Vectorize）を `infra/prod-deploy-runbook.md` に集約した。
-- web のサインイン導線を再設計し、初回 access key 発行後に必ず表示/コピーできるようにした。
+- web のサインイン導線を Google ログインへ移行し、OAuth callback でセッションを確立できるようにした。
+- Google OAuth 2.0 / OIDC ログイン（`/v1/auth/google/start` + `/v1/auth/google/exchange`）を実装し、`user_identities` + 期限付き/revocable session でユーザー保存と認証管理を再設計した。
 - user model（style/intent/preferences）の取得/更新/初期化 API と、Profile 編集 UI を追加し、生成に反映できるようにした。
 - 生成の透明性（used model / keywords / sourceFragmentIds）を API で永続化・返却し、web UI で表示できるようにした。
 - 履歴 UI に月ナビ付きカレンダー表示と「さらに30件読み込む」ページングを追加し、過去日の閲覧導線を強化した。
