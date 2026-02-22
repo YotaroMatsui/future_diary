@@ -1,6 +1,6 @@
 # apps/web
 
-`apps/web/src/App.tsx` は shadcn（radix-nova）ベースの mobile-first UI を提供し、`#/login` と `#/diary` の2状態を管理する。UIは iPhone リマインダー風の一体型レイアウトで、生成中インジケーター、typewriter表示、記入済み可視化付きカレンダーを備え、日記本文は自動保存される。
+`apps/web` は Future Diary の Web クライアントを提供する。`apps/web/src/App.tsx` は composition root として `app-header.tsx` / `login-page.tsx` / `diary-page.tsx` を組み合わせ、`use-future-diary-app.ts` が hash route（`#/login`, `#/diary`）と認証・生成・編集の状態遷移を管理する。UIは iPhone リマインダー風の一体型レイアウトで、生成中インジケーター、typewriter表示、記入済み可視化付きカレンダーを備え、日記本文は自動保存される。
 
 - パス: `apps/web/README.md`
 - 状態: Implemented
@@ -15,6 +15,7 @@
 - カレンダーで日付選択し、その日付の draft を取得/生成。
 - 編集領域左上のインジケーターで生成中/表示中/編集中を明示。
 - 本文編集は blur 時に自動保存（保存/確定ボタンなし）。
+- ロジックと表示を分離し、`use-future-diary-app.ts`（状態管理）と `*-page.tsx`/`*-pane.tsx`（表示）で責務分割。
 
 ## スコープ
 
@@ -39,6 +40,7 @@
 | 公開シンボル | 種別 | 定義元 | 目的 |
 | --- | --- | --- | --- |
 | `App` | component | `apps/web/src/App.tsx` | Web UI root |
+| `useFutureDiaryApp` | hook | `apps/web/src/use-future-diary-app.ts` | Web app state/use case orchestration |
 | `fetchFutureDiaryDraft` | function | `apps/web/src/api.ts` | 下書き取得/生成 |
 | `saveDiaryEntry` | function | `apps/web/src/api.ts` | 自動保存API |
 | `deleteDiaryEntry` | function | `apps/web/src/api.ts` | 日記再生成（削除後に再取得） |
