@@ -132,7 +132,7 @@ jobs:
         run: make install
 
       - name: Build Web
-        run: bun --cwd apps/web run build
+        run: bun run --cwd apps/web build
 
       - name: Deploy to Cloudflare Pages production branch
         run: |

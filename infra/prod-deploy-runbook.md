@@ -178,7 +178,7 @@ bunx wrangler deploy --config apps/jobs/wrangler.toml
 ローカル build した static assets を `wrangler pages deploy` でデプロイする（MVP の SSOT）。
 
 ```bash
-VITE_API_BASE_URL="https://<api-base-url>" bun --cwd apps/web run build
+VITE_API_BASE_URL="https://<api-base-url>" bun run --cwd apps/web build
 bunx wrangler pages project create future-diary-web || true
 bunx wrangler pages deploy apps/web/dist --project-name future-diary-web
 ```
