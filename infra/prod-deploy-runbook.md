@@ -10,8 +10,9 @@
 
 ## 重要な注意（Security）
 
-- 現状は **認証が無い**。API は CORS `origin="*"` のため、公開運用の前提が弱い。
-  - 本番公開前に、認証と CORS allowlist（少なくとも `*` 禁止）を導入すること（別タスク）。
+- API は Bearer token session 認証を前提にしている。公開環境では access token を安全に保管し、漏えい時は logout/revoke を実施する。
+- CORS は production 既定で Pages ドメイン（`future-diary-web.pages.dev` とその subdomain）を許可する。追加ドメインが必要な場合は `CORS_ALLOW_ORIGINS` を設定する。
+- Secrets（OpenAI key / Jobs token / Cloudflare token）は GitHub Secrets と `wrangler secret` で管理し、リポジトリへ平文コミットしない。
 
 ## リソース名（SSOT）
 
@@ -25,6 +26,49 @@
   - dimensions: `1024`, metric: `cosine`（embeddings model と一致必須）
 - Pages:
   - project name（推奨）: `future-diary-web`
+
+## 0. GitHub Actions CI/CD（推奨運用）
+
+### 0.1 Git workflow
+
+- integration branch は `main` の一本運用。
+- 開発は `main` から `feat/*`, `fix/*`, `chore/*`, `docs/*`, `hotfix/*`, `release/*` を切って PR を作成する。
+- PR が `main` へマージされた時点を production deploy のタイミングとする。
+
+### 0.2 自動実行される workflow
+
+- PR向け: `.github/workflows/pr-preview.yml`
+  - trigger: `pull_request`（target: `main`）
+  - 実行内容: `make ci` + `make smoke`
+  - deploy対象: Web のみ
+  - deploy先: Pages の固定 preview branch `preview`
+  - 固定URL: `https://preview.future-diary-web.pages.dev`
+  - 補足: `api/jobs` は PR では deploy しない（CI検証のみ）
+- production向け: `.github/workflows/main-production.yml`
+  - trigger: `main` への `push`
+  - 実行内容: `make ci` + `make smoke`
+  - deploy対象: API Worker / Jobs Worker / Web
+  - deploy先:
+    - API: `apps/api/wrangler.toml`
+    - Jobs: `apps/jobs/wrangler.toml`
+    - Web: Pages production branch `main`（`https://future-diary-web.pages.dev`）
+
+### 0.3 GitHub 側の必須設定
+
+- Repository Secrets:
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `CLOUDFLARE_API_TOKEN`
+- Repository Variables:
+  - `VITE_API_BASE_URL_PRODUCTION`
+    - 例: `https://future-diary-api.<workers-subdomain>.workers.dev`
+- 推奨:
+  - GitHub Environments `preview`, `production` を作成し、必要に応じて保護ルール（required reviewers）を設定する。
+
+### 0.4 固定 preview URL の前提
+
+- 固定 preview URL は、Pages deploy 時に `--branch preview` を指定することで維持される。
+- PRごとの一意URL（`<hash>.future-diary-web.pages.dev`）ではなく、単一の共有 preview URL を上書き運用する。
+- Fork 由来の PR は GitHub Secrets を使えないため、preview deploy job は自動 skip される。
 
 ## 1. Cloudflare へのログイン
 
@@ -115,7 +159,7 @@ Vars（非Secret）:
 
 `VITE_*` は build 時に bundle へ埋め込まれるため、**デプロイ前に確定**させる。
 
-## 5. Deploy
+## 5. Manual Deploy（GitHub Actions失敗時の手動復旧手順）
 
 ### 5.1 API Worker
 

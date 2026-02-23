@@ -1,0 +1,90 @@
+name: PR CI + Preview Deploy
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI (lint/test/typecheck/build/smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.1.45"
+
+      - name: Install dependencies
+        run: make install
+
+      - name: Run CI
+        run: make ci
+
+      - name: Run smoke test
+        run: make smoke
+
+  deploy-preview-web:
+    name: Deploy Web Preview (fixed URL)
+    runs-on: ubuntu-latest
+    needs:
+      - ci
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.fork == false
+    timeout-minutes: 20
+    environment:
+      name: preview
+      url: https://preview.future-diary-web.pages.dev
+    env:
+      PAGES_PROJECT_NAME: future-diary-web
+      PAGES_PREVIEW_BRANCH: preview
+      VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL_PRODUCTION }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.1.45"
+
+      - name: Validate deploy configuration
+        run: |
+          test -n "${VITE_API_BASE_URL}" || (echo "::error::Missing repository variable VITE_API_BASE_URL_PRODUCTION" && exit 1)
+          test -n "${CLOUDFLARE_ACCOUNT_ID}" || (echo "::error::Missing secret CLOUDFLARE_ACCOUNT_ID" && exit 1)
+          test -n "${CLOUDFLARE_API_TOKEN}" || (echo "::error::Missing secret CLOUDFLARE_API_TOKEN" && exit 1)
+
+      - name: Install dependencies
+        run: make install
+
+      - name: Build Web
+        run: bun --cwd apps/web run build
+
+      - name: Deploy to Cloudflare Pages preview branch
+        run: |
+          bunx wrangler pages deploy apps/web/dist \
+            --project-name "${PAGES_PROJECT_NAME}" \
+            --branch "${PAGES_PREVIEW_BRANCH}" \
+            --commit-hash "${GITHUB_SHA}"
+
+      - name: Job summary
+        run: |
+          echo "Preview URL: https://preview.future-diary-web.pages.dev" >> "${GITHUB_STEP_SUMMARY}"
+          echo "Source PR: #${{ github.event.pull_request.number }}" >> "${GITHUB_STEP_SUMMARY}"
