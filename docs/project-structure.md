@@ -8,11 +8,16 @@
 - `packages/`: 再利用モジュール（core / db / vector / ui）
 - `infra/`: Cloudflare 関連設定
 - `docs/`: 要件と構成ドキュメント
+- `.github/workflows/`: GitHub Actions による CI/CD 定義
 
 ## Tree
 
 ```text
 .
+├── .github/
+│   └── workflows/
+│       ├── pr-preview.yml
+│       └── main-production.yml
 ├── README.md
 ├── apps/
 │   ├── README.md
@@ -109,5 +114,8 @@
   - dimensions は `AI_EMBEDDING_MODEL`（Workers AI embeddings）の出力次元と一致させる（不一致の場合 retrieval は fallback され、upsert は失敗してログに落ちる）。
   - server-side の `date < beforeDate` filter を使う場合は metadata index を作成する（例: `bunx wrangler vectorize create-metadata-index future-diary-index --propertyName date --type string`）。
 - 本番構築/デプロイの runbook は `infra/prod-deploy-runbook.md` が SSOT。
-- 現在のCI前提コマンドは `bun` 導入済み環境を前提とする。
+- CI/CD は GitHub Actions で運用する。
+  - PR -> `pr-preview.yml`: `make ci` + `make smoke` 後に Web を `preview` branch へ deploy（固定URL: `https://preview.future-diary-web.pages.dev`）
+  - `main` push -> `main-production.yml`: `make ci` + `make smoke` 後に API/Jobs/Web を production へ deploy
+- 現在の CI 前提コマンドは `bun` 導入済み環境を前提とする。
 - README は親を導線、子を詳細として責務分離している。
