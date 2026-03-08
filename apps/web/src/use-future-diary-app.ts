@@ -34,10 +34,12 @@ import {
 } from "./future-diary-date";
 import { appPaths, storageKeys, type AppPath, type CalendarDay, type GenerationState, type SessionState } from "./future-diary-types";
 import { analyzeReflection, mergeInsightIntoUserModel, type ReflectionInsight } from "./reflection-analysis";
+import { applySimpleReflectionPromptDefaults } from "./reflection-prompt";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
 
 const toErrorMessage = (error: unknown): string => (error instanceof Error ? error.message : "Unknown error");
+const clampMaxParagraphs = (value: number): number => Math.min(6, Math.max(1, Math.trunc(value)));
 
 type GoogleAuthExchangePayload = {
   code: string;
@@ -132,6 +134,11 @@ export type FutureDiaryAppModel = {
   refreshReflectionInsight: () => Promise<void>;
   changeDiaryPurpose: (value: string) => void;
   changeDiaryStyle: (value: string) => void;
+  changeOpeningPhrase: (value: string) => void;
+  changeClosingPhrase: (value: string) => void;
+  changeMaxParagraphs: (value: number) => void;
+  changeAvoidCopyingFromFragments: (value: boolean) => void;
+  resetReflectionPrompt: () => void;
   saveReflectionModel: () => Promise<void>;
   resetReflectionModel: () => Promise<void>;
 };
@@ -967,6 +974,79 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
     });
   }, []);
 
+  const changeOpeningPhrase = useCallback((value: string) => {
+    setReflectionModel((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        styleHints: {
+          ...current.styleHints,
+          openingPhrases: [value],
+        },
+      };
+    });
+  }, []);
+
+  const changeClosingPhrase = useCallback((value: string) => {
+    setReflectionModel((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        styleHints: {
+          ...current.styleHints,
+          closingPhrases: [value],
+        },
+      };
+    });
+  }, []);
+
+  const changeMaxParagraphs = useCallback((value: number) => {
+    setReflectionModel((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        styleHints: {
+          ...current.styleHints,
+          maxParagraphs: clampMaxParagraphs(Number.isFinite(value) ? value : current.styleHints.maxParagraphs),
+        },
+      };
+    });
+  }, []);
+
+  const changeAvoidCopyingFromFragments = useCallback((value: boolean) => {
+    setReflectionModel((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        preferences: {
+          ...current.preferences,
+          avoidCopyingFromFragments: value,
+        },
+      };
+    });
+  }, []);
+
+  const resetReflectionPrompt = useCallback(() => {
+    setReflectionModel((current) => {
+      if (!current) {
+        return current;
+      }
+      return applySimpleReflectionPromptDefaults(current);
+    });
+  }, []);
+
   const saveReflectionModel = useCallback(async () => {
     if (!session || !reflectionModel) {
       return;
@@ -1113,6 +1193,11 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
     refreshReflectionInsight,
     changeDiaryPurpose,
     changeDiaryStyle,
+    changeOpeningPhrase,
+    changeClosingPhrase,
+    changeMaxParagraphs,
+    changeAvoidCopyingFromFragments,
+    resetReflectionPrompt,
     saveReflectionModel,
     resetReflectionModel: resetReflectionModelState,
   };

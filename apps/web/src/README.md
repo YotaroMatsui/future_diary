@@ -18,6 +18,7 @@
 - `future-diary-date.ts` / `future-diary-browser.ts` / `future-diary-types.ts`: 純粋関数・境界ユーティリティ・型定義。
 - `api.ts`: 型付きAPIクライアント。
 - `reflection-analysis.ts`: 保存済み日記をもとにした振り返り補助分析（pure）。
+- `reflection-prompt.ts`: 振り返り画面の生成プロンプトプレビュー/初期化ロジック（pure）。
 - `ui-*.tsx` + `utils.ts`: shadcn style の最小UIプリミティブ。
 - `index.css`: Tailwind v4 + shadcn Nova tokens + 全画面共通デザインシステム（`fd-*` classes）。
 
@@ -61,6 +62,7 @@
     ├── use-future-diary-app.ts      # app state + use cases
     ├── reflection-page.tsx          # reflection page container
     ├── reflection-analysis.ts       # reflection analysis helpers
+    ├── reflection-prompt.ts         # generation prompt preview/default helpers
     ├── future-diary-date.ts         # date/month/calendar utilities
     ├── future-diary-browser.ts      # location/localStorage utilities
     ├── future-diary-types.ts        # app/domain types
@@ -92,4 +94,5 @@
 - `startTypewriter` が生成完了直後の本文を1文字ずつ表示する。
 - `loadMonthFilledState` が `listDiaryEntries` を使って当月の記入済み日付を算出し、カレンダーに反映する。
 - `loadReflectionContext` が `user/model` と保存済み日記一覧を取得し、自己モデルの初期値（目的/筆致/実践ナレッジ）を補完する。
+- `reflection-page.tsx` は生成プロンプト全体の確認/調整をドロワーに分離し、通常操作の視認性を保つ。
 - 再生成UIは本文エリア右上の wand-sparkles アイコンのみ。

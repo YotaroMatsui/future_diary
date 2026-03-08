@@ -53,6 +53,11 @@ export const App = () => {
             errorMessage={app.errorMessage}
             onChangeDiaryPurpose={app.changeDiaryPurpose}
             onChangeDiaryStyle={app.changeDiaryStyle}
+            onChangeOpeningPhrase={app.changeOpeningPhrase}
+            onChangeClosingPhrase={app.changeClosingPhrase}
+            onChangeMaxParagraphs={app.changeMaxParagraphs}
+            onChangeAvoidCopyingFromFragments={app.changeAvoidCopyingFromFragments}
+            onResetPrompt={app.resetReflectionPrompt}
             onSave={app.saveReflectionModel}
             onReset={app.resetReflectionModel}
             onRefreshInsight={app.refreshReflectionInsight}

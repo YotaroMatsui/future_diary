@@ -1582,7 +1582,7 @@ describe("future-diary-api", () => {
     const json = (await get.json()) as { ok: boolean; model?: any };
     expect(get.status).toBe(200);
     expect(json.ok).toBe(true);
-    expect(json.model?.intent).toBe("");
+    expect(json.model?.intent).toBe("今日の出来事を短く振り返り、明日の一歩を決める。");
   });
 
   test("POST /v1/diary/entry/delete deletes an entry", async () => {
@@ -1915,6 +1915,6 @@ describe("future-diary-api", () => {
     expect(response.status).toBe(200);
     expect(json.ok).toBe(true);
     expect(json.entries?.map((entry) => entry.date)).toEqual(["2026-02-07", "2026-02-06"]);
-    expect(json.entries?.[0]?.body).toContain("今日は無理をせず");
+    expect(json.entries?.[0]?.body).toContain("今日は落ち着いて一日を振り返る。");
   });
 });

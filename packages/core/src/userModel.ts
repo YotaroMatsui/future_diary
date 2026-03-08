@@ -23,14 +23,14 @@ export type UserModelParseError =
   | { type: "INVALID_MODEL"; message: string };
 
 export const defaultStyleHints: StyleHints = {
-  openingPhrases: ["今日は無理をせず、少しずつ整えていく一日にしたい。"],
-  closingPhrases: ["夜に事実を追記して、確定日記にする。"],
+  openingPhrases: ["今日は落ち着いて一日を振り返る。"],
+  closingPhrases: ["最後に、明日の最初の一歩を一つ決める。"],
   maxParagraphs: 2,
 } as const;
 
 export const defaultUserReflection: UserReflectionV1 = {
-  diaryCharacterization: "",
-  writingStyle: "",
+  diaryCharacterization: "短い振り返りメモ。",
+  writingStyle: "短い文で、事実・気づき・次の一歩の順に書く。",
   inferredProfile: "",
   idealSelfImage: "",
   realityPlan: "",
@@ -38,7 +38,7 @@ export const defaultUserReflection: UserReflectionV1 = {
 
 export const defaultUserModel: UserModelV1 = {
   version: 1,
-  intent: "",
+  intent: "今日の出来事を短く振り返り、明日の一歩を決める。",
   styleHints: defaultStyleHints,
   preferences: {
     avoidCopyingFromFragments: true,

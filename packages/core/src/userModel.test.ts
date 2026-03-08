@@ -76,8 +76,10 @@ describe("userModel", () => {
     expect(buildGenerationIntentFromUserModel(parsed.value)).toBe("落ち着いて進める");
   });
 
-  test("buildUserModelPromptContext returns empty when all optional fields are empty", () => {
-    expect(buildUserModelPromptContext(defaultUserModel)).toBe("");
+  test("buildUserModelPromptContext uses simplified defaults", () => {
+    const context = buildUserModelPromptContext(defaultUserModel);
+    expect(context).toContain("日記の目的:");
+    expect(context).toContain("日記の特徴(筆致):");
   });
 
   test("buildUserModelPromptContext includes purpose/style/knowledge", () => {
