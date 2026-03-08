@@ -17,6 +17,7 @@ describe("buildFutureDiaryDraft", () => {
         { id: "f1", date: "2026-02-06", relevance: 0.9, text: "朝に散歩した。頭がすっきりした。" },
         { id: "f2", date: "2026-02-05", relevance: 0.4, text: "仕事でレビューが進んだ。" },
       ],
+      calendarScheduleLines: ["09:00-09:30 朝会", "13:00-14:00 設計レビュー"],
     });
 
     expect(result.ok).toBe(true);
@@ -25,6 +26,8 @@ describe("buildFutureDiaryDraft", () => {
     }
     expect(result.value.sourceFragmentIds).toEqual(["f1", "f2"]);
     expect(result.value.body).toContain("夜には事実ベースで追記して確定する。");
+    expect(result.value.body).toContain("今日の予定メモ:");
+    expect(result.value.body).toContain("09:00-09:30 朝会");
   });
 
   test("returns error when no source exists", () => {

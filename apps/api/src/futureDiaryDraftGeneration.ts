@@ -55,6 +55,7 @@ export const generateFutureDiaryDraft = async (params: {
   date: string;
   timezone: string;
   safetyIdentifier: string;
+  calendarScheduleLines?: readonly string[];
 }): Promise<GeneratedDraft> => {
   const userId = params.userId;
   const date = params.date;
@@ -132,6 +133,7 @@ export const generateFutureDiaryDraft = async (params: {
       styleHints,
       draftIntent,
       preferences,
+      calendarScheduleLines: params.calendarScheduleLines ?? [],
     });
 
     const llmResult = await requestOpenAiStructuredOutputText({
@@ -192,6 +194,7 @@ export const generateFutureDiaryDraft = async (params: {
       styleHints,
       draftIntent,
       preferences,
+      calendarScheduleLines: params.calendarScheduleLines ?? [],
     });
 
     if (draftResult.ok) {
@@ -208,7 +211,12 @@ export const generateFutureDiaryDraft = async (params: {
     } else if (draftResult.error.type === "NO_SOURCE") {
       source = "fallback";
       draft = {
-        ...buildFallbackFutureDiaryDraft({ date, styleHints, draftIntent }),
+        ...buildFallbackFutureDiaryDraft({
+          date,
+          styleHints,
+          draftIntent,
+          calendarScheduleLines: params.calendarScheduleLines ?? [],
+        }),
         keywords: [],
       };
     } else {

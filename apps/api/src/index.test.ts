@@ -70,6 +70,26 @@ const createInMemoryD1 = () => {
     used_at: string | null;
   };
 
+  type GoogleCalendarConnectionRow = {
+    user_id: string;
+    access_token: string;
+    refresh_token: string;
+    access_token_expires_at: string;
+    scope: string;
+    created_at: string;
+    updated_at: string;
+  };
+
+  type GoogleCalendarOauthStateRow = {
+    state: string;
+    user_id: string;
+    code_verifier: string;
+    redirect_uri: string;
+    created_at: string;
+    expires_at: string;
+    used_at: string | null;
+  };
+
   const now = () => new Date().toISOString();
   const users = new Map<string, UserRow>();
   const entries = new Map<string, DiaryRow>();
@@ -78,6 +98,8 @@ const createInMemoryD1 = () => {
   const identities = new Map<string, UserIdentityRow>();
   const identityIdByProviderSubject = new Map<string, string>();
   const oauthStates = new Map<string, AuthOauthStateRow>();
+  const googleCalendarConnections = new Map<string, GoogleCalendarConnectionRow>();
+  const googleCalendarOauthStates = new Map<string, GoogleCalendarOauthStateRow>();
   const revisions: DiaryEntryRevisionRow[] = [];
 
   const entryKey = (userId: string, date: string) => `${userId}:${date}`;
@@ -155,6 +177,24 @@ const createInMemoryD1 = () => {
             const [state, usedAt] = bound as [string, string];
             const row = oauthStates.get(state);
             if (!row || row.used_at !== usedAt) {
+              return null;
+            }
+            return row as T | null;
+          }
+          if (
+            query.includes("FROM google_calendar_connections") &&
+            query.includes("WHERE user_id = ?")
+          ) {
+            const [userId] = bound as [string];
+            return (googleCalendarConnections.get(userId) ?? null) as T | null;
+          }
+          if (
+            query.includes("FROM google_calendar_oauth_states") &&
+            query.includes("WHERE state = ? AND user_id = ? AND used_at = ?")
+          ) {
+            const [state, userId, usedAt] = bound as [string, string, string];
+            const row = googleCalendarOauthStates.get(state);
+            if (!row || row.user_id !== userId || row.used_at !== usedAt) {
               return null;
             }
             return row as T | null;
@@ -277,6 +317,41 @@ const createInMemoryD1 = () => {
             return { success: true };
           }
 
+          if (query.includes("INSERT INTO google_calendar_connections")) {
+            const [userId, accessToken, refreshToken, accessTokenExpiresAt, scope] = bound as [
+              string,
+              string,
+              string,
+              string,
+              string,
+            ];
+            const existing = googleCalendarConnections.get(userId);
+            googleCalendarConnections.set(userId, {
+              user_id: userId,
+              access_token: accessToken,
+              refresh_token: refreshToken,
+              access_token_expires_at: accessTokenExpiresAt,
+              scope,
+              created_at: existing?.created_at ?? now(),
+              updated_at: now(),
+            });
+            return { success: true };
+          }
+
+          if (query.includes("INSERT INTO google_calendar_oauth_states")) {
+            const [state, userId, codeVerifier, redirectUri, expiresAt] = bound as [string, string, string, string, string];
+            googleCalendarOauthStates.set(state, {
+              state,
+              user_id: userId,
+              code_verifier: codeVerifier,
+              redirect_uri: redirectUri,
+              created_at: now(),
+              expires_at: expiresAt,
+              used_at: null,
+            });
+            return { success: true };
+          }
+
           if (query.includes("INSERT INTO diary_entries")) {
             const [id, userId, date, generatedText] = bound as [string, string, string, string?];
             const key = entryKey(userId, date);
@@ -348,6 +423,23 @@ const createInMemoryD1 = () => {
             const existing = oauthStates.get(state);
             if (existing && existing.used_at === null && Date.parse(existing.expires_at) > Date.now()) {
               oauthStates.set(state, {
+                ...existing,
+                used_at: usedAt,
+              });
+            }
+            return { success: true };
+          }
+
+          if (query.includes("UPDATE google_calendar_oauth_states") && query.includes("SET used_at = ?")) {
+            const [usedAt, state, userId] = bound as [string, string, string];
+            const existing = googleCalendarOauthStates.get(state);
+            if (
+              existing &&
+              existing.user_id === userId &&
+              existing.used_at === null &&
+              Date.parse(existing.expires_at) > Date.now()
+            ) {
+              googleCalendarOauthStates.set(state, {
                 ...existing,
                 used_at: usedAt,
               });
@@ -527,6 +619,21 @@ const createInMemoryD1 = () => {
             return { success: true };
           }
 
+          if (query.includes("DELETE FROM google_calendar_oauth_states") && query.includes("expires_at <= datetime('now')")) {
+            for (const [state, oauthState] of googleCalendarOauthStates.entries()) {
+              if (Date.parse(oauthState.expires_at) <= Date.now()) {
+                googleCalendarOauthStates.delete(state);
+              }
+            }
+            return { success: true };
+          }
+
+          if (query.includes("DELETE FROM google_calendar_connections") && query.includes("WHERE user_id = ?")) {
+            const [userId] = bound as [string];
+            googleCalendarConnections.delete(userId);
+            return { success: true };
+          }
+
           if (query.includes("DELETE FROM diary_entries") && query.includes("WHERE user_id = ? AND date = ?")) {
             const [userId, date] = bound as [string, string];
             entries.delete(entryKey(userId, date));
@@ -577,6 +684,13 @@ const createInMemoryD1 = () => {
               }
             }
 
+            googleCalendarConnections.delete(userId);
+            for (const [state, oauthState] of googleCalendarOauthStates.entries()) {
+              if (oauthState.user_id === userId) {
+                googleCalendarOauthStates.delete(state);
+              }
+            }
+
             return { success: true };
           }
 
@@ -603,7 +717,16 @@ const createInMemoryD1 = () => {
 
       return statement;
     },
-    __data: { users, entries, revisions, sessions, identities, oauthStates },
+    __data: {
+      users,
+      entries,
+      revisions,
+      sessions,
+      identities,
+      oauthStates,
+      googleCalendarConnections,
+      googleCalendarOauthStates,
+    },
   };
 };
 
@@ -719,12 +842,16 @@ describe("future-diary-api", () => {
       env,
     );
 
-    const meJson = (await meResponse.json()) as { ok: boolean; user?: { id?: string; timezone?: string } };
+    const meJson = (await meResponse.json()) as {
+      ok: boolean;
+      user?: { id?: string; timezone?: string; googleCalendarConnected?: boolean };
+    };
 
     expect(meResponse.status).toBe(200);
     expect(meJson.ok).toBe(true);
     expect(meJson.user?.id).toBe(createJson.user?.id);
     expect(meJson.user?.timezone).toBe("Asia/Tokyo");
+    expect(meJson.user?.googleCalendarConnected).toBe(false);
   });
 
   test("POST /v1/auth/logout revokes current access token", async () => {
@@ -1007,6 +1134,118 @@ describe("future-diary-api", () => {
     }
   });
 
+  test("Google Calendar integration start/exchange stores connection and exposes connected status", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+
+      if (url === "https://oauth2.googleapis.com/token") {
+        const form = new URLSearchParams(String(init?.body ?? ""));
+        if (form.get("grant_type") === "authorization_code") {
+          return new Response(
+            JSON.stringify({
+              access_token: "calendar-access-token",
+              refresh_token: "calendar-refresh-token",
+              expires_in: 3600,
+              scope: "https://www.googleapis.com/auth/calendar.readonly",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+      }
+
+      return await originalFetch(input, init);
+    };
+
+    try {
+      const db = createInMemoryD1();
+      const env = {
+        DB: db as unknown as D1Database,
+        GOOGLE_OAUTH_CLIENT_ID: "google-client-id",
+      };
+      const accessToken = await createAuthSession(env);
+
+      const startResponse = await app.request(
+        "/v1/integrations/google-calendar/start",
+        {
+          method: "POST",
+          headers: {
+            ...authJsonHeaders(accessToken),
+            origin: "http://127.0.0.1:5173",
+          },
+          body: JSON.stringify({ redirectUri: "http://127.0.0.1:5173" }),
+        },
+        env,
+      );
+      const startJson = (await startResponse.json()) as { ok?: boolean; authorizationUrl?: string };
+
+      expect(startResponse.status).toBe(200);
+      expect(startJson.ok).toBe(true);
+      expect(typeof startJson.authorizationUrl).toBe("string");
+
+      const authorizationUrl = new URL(startJson.authorizationUrl as string);
+      expect(authorizationUrl.searchParams.get("scope")).toContain("calendar.readonly");
+
+      const state = authorizationUrl.searchParams.get("state");
+      expect(typeof state).toBe("string");
+
+      const exchangeResponse = await app.request(
+        "/v1/integrations/google-calendar/exchange",
+        {
+          method: "POST",
+          headers: authJsonHeaders(accessToken),
+          body: JSON.stringify({
+            code: "calendar-auth-code",
+            state,
+            redirectUri: "http://127.0.0.1:5173",
+          }),
+        },
+        env,
+      );
+      const exchangeJson = (await exchangeResponse.json()) as {
+        ok?: boolean;
+        connected?: boolean;
+        connection?: { scope?: string; accessTokenExpiresAt?: string };
+      };
+
+      expect(exchangeResponse.status).toBe(200);
+      expect(exchangeJson.ok).toBe(true);
+      expect(exchangeJson.connected).toBe(true);
+      expect(exchangeJson.connection?.scope).toContain("calendar.readonly");
+      expect(typeof exchangeJson.connection?.accessTokenExpiresAt).toBe("string");
+
+      const statusResponse = await app.request(
+        "/v1/integrations/google-calendar/status",
+        {
+          method: "GET",
+          headers: authJsonHeaders(accessToken),
+        },
+        env,
+      );
+      const statusJson = (await statusResponse.json()) as { ok?: boolean; connected?: boolean };
+      expect(statusResponse.status).toBe(200);
+      expect(statusJson.ok).toBe(true);
+      expect(statusJson.connected).toBe(true);
+
+      const meResponse = await app.request(
+        "/v1/auth/me",
+        {
+          headers: authJsonHeaders(accessToken),
+        },
+        env,
+      );
+      const meJson = (await meResponse.json()) as {
+        ok?: boolean;
+        user?: { googleCalendarConnected?: boolean };
+      };
+      expect(meResponse.status).toBe(200);
+      expect(meJson.ok).toBe(true);
+      expect(meJson.user?.googleCalendarConnected).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("POST /v1/future-diary/draft returns generated draft and caches it", async () => {
     const db = createInMemoryD1();
     const env = { DB: db as unknown as D1Database };
@@ -1081,6 +1320,81 @@ describe("future-diary-api", () => {
     expect(json2.draft?.sourceFragmentIds).toEqual(json1.draft?.sourceFragmentIds);
     expect(json2.draft?.keywords).toEqual(json1.draft?.keywords);
     expect(db.__data.revisions.length).toBe(1);
+  });
+
+  test("POST /v1/future-diary/draft injects Google Calendar schedule when connection exists", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events")) {
+        const authHeader = init?.headers ? new Headers(init.headers as HeadersInit).get("authorization") : null;
+        if (authHeader !== "Bearer calendar-active-token") {
+          return new Response("unauthorized", { status: 401 });
+        }
+
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                summary: "朝会",
+                start: { dateTime: "2026-02-07T09:00:00+09:00" },
+                end: { dateTime: "2026-02-07T09:30:00+09:00" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      return await originalFetch(input, init);
+    };
+
+    try {
+      const db = createInMemoryD1();
+      const env = { DB: db as unknown as D1Database };
+      const accessToken = await createAuthSession(env);
+
+      const meResponse = await app.request(
+        "/v1/auth/me",
+        {
+          headers: authJsonHeaders(accessToken),
+        },
+        env,
+      );
+      const meJson = (await meResponse.json()) as { user?: { id?: string } };
+      const userId = meJson.user?.id;
+      if (!userId) {
+        throw new Error("Failed to resolve user id");
+      }
+
+      db.__data.googleCalendarConnections.set(userId, {
+        user_id: userId,
+        access_token: "calendar-active-token",
+        refresh_token: "calendar-refresh-token",
+        access_token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        scope: "https://www.googleapis.com/auth/calendar.readonly",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      const response = await app.request(
+        "/v1/future-diary/draft",
+        {
+          method: "POST",
+          body: JSON.stringify({ date: "2026-02-07", timezone: "Asia/Tokyo" }),
+          headers: authJsonHeaders(accessToken),
+        },
+        env,
+      );
+
+      const json = (await response.json()) as { ok?: boolean; draft?: { body?: string } };
+      expect(response.status).toBe(200);
+      expect(json.ok).toBe(true);
+      expect(json.draft?.body).toContain("今日の予定メモ:");
+      expect(json.draft?.body).toContain("09:00-09:30 朝会");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("POST /v1/future-diary/draft enqueues async generation when queue binding exists", async () => {

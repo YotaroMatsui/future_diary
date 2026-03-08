@@ -15,9 +15,11 @@ export const App = () => {
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4">
         <AppHeader
           session={app.session}
+          googleCalendarConnected={app.googleCalendarConnected}
           authLoading={app.authLoading}
           bootstrapping={app.bootstrapping}
           onStartGoogleAuth={app.startGoogleAuth}
+          onStartGoogleCalendarAuth={app.startGoogleCalendarAuth}
           onLogout={app.logout}
         />
 

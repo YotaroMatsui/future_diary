@@ -1,6 +1,6 @@
 # apps/web
 
-`apps/web` は Future Diary の Web クライアントを提供する。`apps/web/src/App.tsx` は composition root として `app-header.tsx` / `login-page.tsx` / `diary-page.tsx` を組み合わせ、`use-future-diary-app.ts` が hash route（`#/login`, `#/diary`）と認証・生成・編集の状態遷移を管理する。UIは iPhone リマインダー風の一体型レイアウトで、生成中インジケーター、typewriter表示、記入済み可視化付きカレンダーを備え、日記本文は自動保存される。
+`apps/web` は Future Diary の Web クライアントを提供する。`apps/web/src/App.tsx` は composition root として `app-header.tsx` / `login-page.tsx` / `diary-page.tsx` を組み合わせ、`use-future-diary-app.ts` が hash route（`#/login`, `#/diary`）と認証・生成・編集の状態遷移を管理する。UIは iPhone リマインダー風の一体型レイアウトで、生成中インジケーター、typewriter表示、記入済み可視化付きカレンダーを備え、日記本文は自動保存される。ヘッダーには Google Calendar 連携ボタンがあり、OAuth callback を login 用/Calendar 用で分岐して処理する。
 
 - パス: `apps/web/README.md`
 - 状態: Implemented
@@ -12,6 +12,7 @@
 ## 役割
 
 - ヘッダーに login/logout を集約。
+- ヘッダーから Google Calendar 連携（OAuth）を実行し、連携状態を表示。
 - カレンダーで日付選択し、その日付の draft を取得/生成。
 - 編集領域左上のインジケーターで生成中/表示中/編集中を明示。
 - 本文編集は blur 時に自動保存（保存/確定ボタンなし）。
@@ -21,6 +22,7 @@
 
 - 対象（In scope）:
   - Google OAuth 開始/交換、セッション復元、ログアウト
+  - Google Calendar OAuth 開始/交換（連携ボタン）
   - draft 取得/生成、本文編集、自動保存、再生成（内部は削除API利用）
   - カレンダーによる日付切り替え + 記入済み可視化 + 再取得
 - 対象外（Non-goals）:

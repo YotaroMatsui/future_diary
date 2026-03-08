@@ -30,6 +30,7 @@ export interface GenerateFutureDiaryInput {
   styleHints: StyleHints;
   draftIntent: string;
   preferences: GenerationPreferences;
+  calendarScheduleLines?: readonly string[];
 }
 
 export interface FutureDiaryDraft {
