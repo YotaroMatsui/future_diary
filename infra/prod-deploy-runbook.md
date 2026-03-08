@@ -46,7 +46,7 @@
   - 補足: `api/jobs` は PR では deploy しない（CI検証のみ）
 - production向け: `.github/workflows/main-production.yml`
   - trigger: `main` への `push`
-  - 実行内容: `make ci` + `make smoke`
+  - 実行内容: `make ci` + `make smoke` + `wrangler d1 migrations apply --remote`（API deploy 前）
   - deploy対象: API Worker / Jobs Worker / Web
   - deploy先:
     - API: `apps/api/wrangler.toml`
