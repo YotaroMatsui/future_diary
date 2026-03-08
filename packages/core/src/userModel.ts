@@ -1,5 +1,13 @@
 import type { Result, StyleHints } from "./types";
 
+export type UserReflectionV1 = {
+  diaryCharacterization: string;
+  writingStyle: string;
+  inferredProfile: string;
+  idealSelfImage: string;
+  realityPlan: string;
+};
+
 export type UserModelV1 = {
   version: 1;
   intent: string;
@@ -7,6 +15,7 @@ export type UserModelV1 = {
   preferences: {
     avoidCopyingFromFragments: boolean;
   };
+  reflection: UserReflectionV1;
 };
 
 export type UserModelParseError =
@@ -19,6 +28,14 @@ export const defaultStyleHints: StyleHints = {
   maxParagraphs: 2,
 } as const;
 
+export const defaultUserReflection: UserReflectionV1 = {
+  diaryCharacterization: "",
+  writingStyle: "",
+  inferredProfile: "",
+  idealSelfImage: "",
+  realityPlan: "",
+};
+
 export const defaultUserModel: UserModelV1 = {
   version: 1,
   intent: "",
@@ -26,6 +43,7 @@ export const defaultUserModel: UserModelV1 = {
   preferences: {
     avoidCopyingFromFragments: true,
   },
+  reflection: defaultUserReflection,
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
@@ -79,6 +97,23 @@ const normalizeMaxParagraphs = (value: unknown): Result<number, string> => {
   }
 
   return { ok: true, value };
+};
+
+const normalizeTextField = (value: unknown, opts: { defaultValue: string; maxLength: number }): Result<string, string> => {
+  if (value === undefined) {
+    return { ok: true, value: opts.defaultValue };
+  }
+
+  if (typeof value !== "string") {
+    return { ok: false, error: "must be a string" };
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length > opts.maxLength) {
+    return { ok: false, error: `must be at most ${opts.maxLength} characters` };
+  }
+
+  return { ok: true, value: trimmed };
 };
 
 export const parseUserModelInput = (input: unknown): Result<UserModelV1, UserModelParseError> => {
@@ -144,6 +179,67 @@ export const parseUserModelInput = (input: unknown): Result<UserModelV1, UserMod
     };
   }
 
+  const reflectionRaw = input.reflection;
+  const reflectionObject = reflectionRaw === undefined ? {} : reflectionRaw;
+  if (!isRecord(reflectionObject)) {
+    return { ok: false, error: { type: "INVALID_MODEL", message: "reflection must be an object" } };
+  }
+
+  const diaryCharacterization = normalizeTextField(reflectionObject.diaryCharacterization, {
+    defaultValue: defaultUserReflection.diaryCharacterization,
+    maxLength: 1200,
+  });
+  if (!diaryCharacterization.ok) {
+    return {
+      ok: false,
+      error: { type: "INVALID_MODEL", message: `reflection.diaryCharacterization ${diaryCharacterization.error}` },
+    };
+  }
+
+  const writingStyle = normalizeTextField(reflectionObject.writingStyle, {
+    defaultValue: defaultUserReflection.writingStyle,
+    maxLength: 1200,
+  });
+  if (!writingStyle.ok) {
+    return {
+      ok: false,
+      error: { type: "INVALID_MODEL", message: `reflection.writingStyle ${writingStyle.error}` },
+    };
+  }
+
+  const inferredProfile = normalizeTextField(reflectionObject.inferredProfile, {
+    defaultValue: defaultUserReflection.inferredProfile,
+    maxLength: 1200,
+  });
+  if (!inferredProfile.ok) {
+    return {
+      ok: false,
+      error: { type: "INVALID_MODEL", message: `reflection.inferredProfile ${inferredProfile.error}` },
+    };
+  }
+
+  const idealSelfImage = normalizeTextField(reflectionObject.idealSelfImage, {
+    defaultValue: defaultUserReflection.idealSelfImage,
+    maxLength: 1200,
+  });
+  if (!idealSelfImage.ok) {
+    return {
+      ok: false,
+      error: { type: "INVALID_MODEL", message: `reflection.idealSelfImage ${idealSelfImage.error}` },
+    };
+  }
+
+  const realityPlan = normalizeTextField(reflectionObject.realityPlan, {
+    defaultValue: defaultUserReflection.realityPlan,
+    maxLength: 1200,
+  });
+  if (!realityPlan.ok) {
+    return {
+      ok: false,
+      error: { type: "INVALID_MODEL", message: `reflection.realityPlan ${realityPlan.error}` },
+    };
+  }
+
   return {
     ok: true,
     value: {
@@ -156,6 +252,13 @@ export const parseUserModelInput = (input: unknown): Result<UserModelV1, UserMod
       },
       preferences: {
         avoidCopyingFromFragments,
+      },
+      reflection: {
+        diaryCharacterization: diaryCharacterization.value,
+        writingStyle: writingStyle.value,
+        inferredProfile: inferredProfile.value,
+        idealSelfImage: idealSelfImage.value,
+        realityPlan: realityPlan.value,
       },
     },
   };
@@ -185,3 +288,32 @@ export const parseUserModelJson = (json: string | null | undefined): Result<User
 
 export const serializeUserModelJson = (model: UserModelV1): string => JSON.stringify(model);
 
+const normalizeLine = (line: string): string => line.trim().replace(/\s+/g, " ");
+const truncate = (text: string, maxLength: number): string => (text.length <= maxLength ? text : text.slice(0, maxLength));
+
+const toNonEmptyLines = (lines: readonly string[]): string[] =>
+  lines.map((line) => normalizeLine(line)).filter((line) => line.length > 0);
+
+export const buildGenerationIntentFromUserModel = (model: UserModelV1): string => {
+  const segments = toNonEmptyLines([model.intent]);
+  if (segments.length === 0) {
+    return "";
+  }
+
+  return truncate(segments.join(" / "), 500);
+};
+
+export const buildUserModelPromptContext = (model: UserModelV1): string => {
+  const diaryStyle = toNonEmptyLines([model.reflection.writingStyle, model.reflection.diaryCharacterization])[0] ?? "";
+  const lines = toNonEmptyLines([
+    model.intent.length > 0 ? `日記の目的: ${model.intent}` : "",
+    diaryStyle.length > 0 ? `日記の特徴(筆致): ${diaryStyle}` : "",
+    model.reflection.inferredProfile.length > 0 ? `日々の実践ナレッジ: ${model.reflection.inferredProfile}` : "",
+  ]);
+
+  if (lines.length === 0) {
+    return "";
+  }
+
+  return truncate(lines.join("\n"), 2200);
+};

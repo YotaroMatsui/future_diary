@@ -75,23 +75,3 @@ export interface AuthOauthStateRow {
   expires_at: string;
   used_at: string | null;
 }
-
-export interface GoogleCalendarConnectionRow {
-  user_id: string;
-  access_token: string;
-  refresh_token: string;
-  access_token_expires_at: string;
-  scope: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface GoogleCalendarOauthStateRow {
-  state: string;
-  user_id: string;
-  code_verifier: string;
-  redirect_uri: string;
-  created_at: string;
-  expires_at: string;
-  used_at: string | null;
-}

@@ -79,7 +79,7 @@
     ├── futureDiary.test.ts      # usecase tests
     ├── futureDiaryLlm.ts        # LLM prompt/schema (pure)
     ├── futureDiaryLlm.test.ts   # prompt/schema tests
-    ├── userModel.ts             # user model parse/defaults (pure)
+    ├── userModel.ts             # user model parse/defaults (pure, reflection fields included)
     ├── userModel.test.ts        # user model tests
     ├── index.ts                 # exports
     └── README.md                # この文書

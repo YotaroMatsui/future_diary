@@ -95,11 +95,7 @@ export const buildFutureDiaryDraftLlmUserPrompt = (input: GenerateFutureDiaryInp
   const openingCandidates = input.styleHints.openingPhrases.map((p) => `- ${p}`).join("\n");
   const closingCandidates = input.styleHints.closingPhrases.map((p) => `- ${p}`).join("\n");
   const intent = normalizeLine(input.draftIntent);
-  const calendarScheduleLines = (input.calendarScheduleLines ?? [])
-    .map((line) => normalizeLine(line))
-    .filter((line) => line.length > 0)
-    .map((line) => `- ${line}`)
-    .join("\n");
+  const selfModelPromptContext = input.selfModelPromptContext.trim();
 
   return [
     "次の情報をもとに、未来日記（下書き）の本文を生成してください。",
@@ -109,6 +105,9 @@ export const buildFutureDiaryDraftLlmUserPrompt = (input: GenerateFutureDiaryInp
     "",
     "ユーザーの意図:",
     intent.length > 0 ? intent : "- (none)",
+    "",
+    "自己モデル（SSOT）:",
+    selfModelPromptContext.length > 0 ? selfModelPromptContext : "- (none)",
     "",
     "スタイルヒント:",
     `- maxParagraphs: ${input.styleHints.maxParagraphs}`,
@@ -120,14 +119,12 @@ export const buildFutureDiaryDraftLlmUserPrompt = (input: GenerateFutureDiaryInp
     "生成プリファレンス:",
     `- avoidCopyingFromFragments: ${input.preferences.avoidCopyingFromFragments ? "true" : "false"}`,
     "",
-    "当日の予定（Google Calendar連携）:",
-    calendarScheduleLines.length > 0 ? calendarScheduleLines : "- (none)",
-    "",
     "参照断片（過去の書記のキーワード。文章は引用しない）:",
     fragmentsText.length > 0 ? fragmentsText : "- (none)",
     "",
     "注意:",
     "- 断定せず、『〜したい』『〜かもしれない』などのモードで書く。",
+    "- 自己モデル（SSOT）と矛盾しない方向で、当日の行動を後押しする文脈にする。",
     "- openingPhrases / closingPhrases が与えられている場合は、自然な形で文頭/文末に寄せる。",
     "- 参照断片の文章をそのまま出力しない（コピー/要約/焼き直しを避ける）。",
   ].join("\n");

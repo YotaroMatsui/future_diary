@@ -1,6 +1,6 @@
 # apps/api
 
-`apps/api/src/index.ts` は Hono Worker の HTTP 境界を実装し、`/health` と未来日記生成トリガ（`/v1/future-diary/draft`）および diary CRUD（`/v1/diary/*`）を提供する。生成/埋め込みは Queue consumer（`default.queue`）で非同期実行し、同一 user/day の重複実行は Durable Object lock で抑止する。Google Calendar 連携状態がある場合は当日の予定を取得して生成コンテキストへ注入する。
+`apps/api/src/index.ts` は Hono Worker の HTTP 境界を実装し、`/health` と未来日記生成トリガ（`/v1/future-diary/draft`）および diary CRUD（`/v1/diary/*`）を提供する。生成/埋め込みは Queue consumer（`default.queue`）で非同期実行し、同一 user/day の重複実行は Durable Object lock で抑止する。
 
 - パス: `apps/api/README.md`
 - 状態: Implemented
@@ -37,7 +37,7 @@
 - Queue consumer（`default.queue`）が draft 生成と Vectorize upsert を非同期実行する。
 - `OPENAI_API_KEY` が設定されている場合は外部LLMで draft 本文を生成する（失敗時は deterministic/fallback へフォールバック）。
 - `AI` + `VECTOR_INDEX` binding が設定されている場合は、Workers AI embeddings + Vectorize による retrieval/upsert を行う（失敗時は D1 の直近日記へフォールバック）。
-- ユーザーモデル（style/intent/preferences）を `users.preferences_json` に保存し、生成に利用する（`/v1/user/model*` で取得/更新/初期化）。
+- ユーザーモデル（style/intent/preferences/reflection）を `users.preferences_json` に保存し、生成に利用する（`/v1/user/model*` で取得/更新/初期化）。
 - 同一 user/day の重複実行は Durable Object lock で抑止する。
 - 過去データが無い場合でも編集可能な fallback draft を返す。
 - diary entry の取得/保存/確定/履歴取得 API を提供する（保存は `final_text`、確定は `status='confirmed'` を更新）。
@@ -216,10 +216,6 @@ curl https://<wrangler出力のURL>/health
   - `POST /v1/auth/session`
   - `GET /v1/auth/me`
   - `POST /v1/auth/logout`
-  - `POST /v1/integrations/google-calendar/start`
-  - `POST /v1/integrations/google-calendar/exchange`
-  - `GET /v1/integrations/google-calendar/status`
-  - `POST /v1/integrations/google-calendar/disconnect`
   - `GET /v1/user/model`
   - `POST /v1/user/model`
   - `POST /v1/user/model/reset`
@@ -243,10 +239,6 @@ curl https://<wrangler出力のURL>/health
 | `POST /v1/auth/session`       | HTTP route     | `src/index.ts` | legacy session 作成（移行互換） | `apps/api/src/index.ts` |
 | `GET /v1/auth/me`             | HTTP route     | `src/index.ts` | session 検証 + provider/profile 取得 | `apps/api/src/index.ts` |
 | `POST /v1/auth/logout`        | HTTP route     | `src/index.ts` | 現在 session の失効 | `apps/api/src/index.ts` |
-| `POST /v1/integrations/google-calendar/start` | HTTP route | `src/index.ts` | Google Calendar OAuth URL 発行（state/PKCE + user紐付け） | `apps/api/src/index.ts` |
-| `POST /v1/integrations/google-calendar/exchange` | HTTP route | `src/index.ts` | code交換 + Calendar token 保存 | `apps/api/src/index.ts` |
-| `GET /v1/integrations/google-calendar/status` | HTTP route | `src/index.ts` | Calendar 連携状態の取得 | `apps/api/src/index.ts` |
-| `POST /v1/integrations/google-calendar/disconnect` | HTTP route | `src/index.ts` | Calendar token の削除 | `apps/api/src/index.ts` |
 | `GET /v1/user/model`          | HTTP route     | `src/index.ts` | user model 取得  | `apps/api/src/index.ts:502` |
 | `POST /v1/user/model`         | HTTP route     | `src/index.ts` | user model 更新  | `apps/api/src/index.ts:541` |
 | `POST /v1/user/model/reset`   | HTTP route     | `src/index.ts` | user model 初期化 | `apps/api/src/index.ts:605` |

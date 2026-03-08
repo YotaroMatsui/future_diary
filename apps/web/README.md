@@ -1,6 +1,6 @@
 # apps/web
 
-`apps/web` は Future Diary の Web クライアントを提供する。`apps/web/src/App.tsx` は composition root として `app-header.tsx` / `login-page.tsx` / `diary-page.tsx` を組み合わせ、`use-future-diary-app.ts` が hash route（`#/login`, `#/diary`）と認証・生成・編集の状態遷移を管理する。UIは iPhone リマインダー風の一体型レイアウトで、生成中インジケーター、typewriter表示、記入済み可視化付きカレンダーを備え、日記本文は自動保存される。ヘッダーには Google Calendar 連携ボタンがあり、OAuth callback を login 用/Calendar 用で分岐して処理する。
+`apps/web` は Future Diary の Web クライアントを提供する。`apps/web/src/App.tsx` は composition root として `app-header.tsx` / `login-page.tsx` / `diary-page.tsx` / `reflection-page.tsx` を組み合わせ、`use-future-diary-app.ts` が hash route（`#/login`, `#/diary`, `#/reflection`）と認証・生成・編集・振り返り（自己モデル編集）の状態遷移を管理する。UIは iPhone リマインダー風の一体型レイアウトで、生成中インジケーター、typewriter表示、記入済み可視化付きカレンダーに加え、保存済み日記からの軽量分析を伴う振り返り画面を備える。
 
 - パス: `apps/web/README.md`
 - 状態: Implemented
@@ -12,19 +12,22 @@
 ## 役割
 
 - ヘッダーに login/logout を集約。
-- ヘッダーから Google Calendar 連携（OAuth）を実行し、連携状態を表示。
+- ヘッダーから `日記` / `振り返り` を切り替え。
 - カレンダーで日付選択し、その日付の draft を取得/生成。
 - 編集領域左上のインジケーターで生成中/表示中/編集中を明示。
 - 本文編集は blur 時に自動保存（保存/確定ボタンなし）。
+- 振り返り画面で自己モデル（SSOT）を編集・保存し、未来日記生成へ反映する。
 - ロジックと表示を分離し、`use-future-diary-app.ts`（状態管理）と `*-page.tsx`/`*-pane.tsx`（表示）で責務分割。
+- 全画面共通のデザインシステム（最小情報設計 + `fd-*` classes）を `src/index.css` に定義。
 
 ## スコープ
 
 - 対象（In scope）:
   - Google OAuth 開始/交換、セッション復元、ログアウト
-  - Google Calendar OAuth 開始/交換（連携ボタン）
   - draft 取得/生成、本文編集、自動保存、再生成（内部は削除API利用）
   - カレンダーによる日付切り替え + 記入済み可視化 + 再取得
+  - 振り返りページでの自己モデル取得/編集/保存/リセット
+  - 保存済み日記一覧からの軽量分析（目的・筆致・実践ナレッジ）
 - 対象外（Non-goals）:
   - ローカルセッション作成
   - generated/cached等の技術メタ情報をそのまま露出するUI
@@ -56,8 +59,10 @@
 
 ## 設計ノート
 
-- hash route (`#/login`, `#/diary`) で表示状態を同期。
+- hash route (`#/login`, `#/diary`, `#/reflection`) で表示状態を同期。
 - OAuth callback 成功時に `session` を即構築して `#/diary` へ遷移。
 - Textarea の blur を契機に `saveDiaryEntry` を自動実行する。
 - 生成完了時は本文を typewriter で段階表示し、ユーザー入力開始時は即停止する。
 - カレンダーは `listDiaryEntries` で当月の記入済み日付を取得し、filled/unfilledマーカーを描画する。
+- 振り返りは `GET/POST /v1/user/model` をSSOTとして扱い、保存済み日記を分析して自己モデル編集の初期値を補完する。
+- 画面設計の共通ルール（最小表示・共通サーフェス・ラベル階層）は `apps/web/src/README.md` の「共通デザインシステム」をSSOTとする。

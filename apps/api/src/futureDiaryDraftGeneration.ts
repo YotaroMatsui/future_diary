@@ -1,9 +1,11 @@
 import {
   buildFallbackFutureDiaryDraft,
   buildFutureDiaryDraft,
+  buildGenerationIntentFromUserModel,
   deriveKeywords,
   buildFutureDiaryDraftLlmSystemPrompt,
   buildFutureDiaryDraftLlmUserPrompt,
+  buildUserModelPromptContext,
   futureDiaryDraftBodyJsonSchema,
   type UserModelV1,
 } from "@future-diary/core";
@@ -55,13 +57,13 @@ export const generateFutureDiaryDraft = async (params: {
   date: string;
   timezone: string;
   safetyIdentifier: string;
-  calendarScheduleLines?: readonly string[];
 }): Promise<GeneratedDraft> => {
   const userId = params.userId;
   const date = params.date;
   const timezone = params.timezone;
   const diaryRepo = params.diaryRepo;
-  const draftIntent = params.userModel.intent;
+  const draftIntent = buildGenerationIntentFromUserModel(params.userModel);
+  const selfModelPromptContext = buildUserModelPromptContext(params.userModel);
   const styleHints = params.userModel.styleHints;
   const preferences = params.userModel.preferences;
 
@@ -132,8 +134,8 @@ export const generateFutureDiaryDraft = async (params: {
       recentFragments: llmFragments,
       styleHints,
       draftIntent,
+      selfModelPromptContext,
       preferences,
-      calendarScheduleLines: params.calendarScheduleLines ?? [],
     });
 
     const llmResult = await requestOpenAiStructuredOutputText({
@@ -193,8 +195,8 @@ export const generateFutureDiaryDraft = async (params: {
       recentFragments,
       styleHints,
       draftIntent,
+      selfModelPromptContext,
       preferences,
-      calendarScheduleLines: params.calendarScheduleLines ?? [],
     });
 
     if (draftResult.ok) {
@@ -211,12 +213,7 @@ export const generateFutureDiaryDraft = async (params: {
     } else if (draftResult.error.type === "NO_SOURCE") {
       source = "fallback";
       draft = {
-        ...buildFallbackFutureDiaryDraft({
-          date,
-          styleHints,
-          draftIntent,
-          calendarScheduleLines: params.calendarScheduleLines ?? [],
-        }),
+        ...buildFallbackFutureDiaryDraft({ date, styleHints, draftIntent }),
         keywords: [],
       };
     } else {

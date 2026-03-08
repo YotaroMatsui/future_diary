@@ -9,15 +9,6 @@ import type {
 
 const normalizeLine = (line: string): string => line.trim().replace(/\s+/g, " ");
 
-const toCalendarScheduleParagraph = (lines: readonly string[] | undefined): string | null => {
-  const normalized = (lines ?? []).map((line) => normalizeLine(line)).filter((line) => line.length > 0).slice(0, 5);
-  if (normalized.length === 0) {
-    return null;
-  }
-
-  return `今日の予定メモ:\n${normalized.map((line) => `- ${line}`).join("\n")}`;
-};
-
 const toKeywordList = (text: string): string[] => {
   const normalized = normalizeLine(text);
   if (normalized.length === 0) {
@@ -138,7 +129,9 @@ export const buildFutureDiaryDraft = (
 
   const intent = normalizeLine(input.draftIntent);
   const intentParagraph = intent.length > 0 ? `今日は「${intent}」を意識して、無理なく進めたい。` : null;
-  const calendarScheduleParagraph = toCalendarScheduleParagraph(input.calendarScheduleLines);
+  const selfModelContext = normalizeLine(input.selfModelPromptContext).slice(0, 240);
+  const selfModelParagraph =
+    selfModelContext.length > 0 ? `自己モデルの現在地: ${selfModelContext}` : null;
 
   const keywordLimit = Math.min(10, Math.max(3, input.styleHints.maxParagraphs * 3));
   const keywords = deriveKeywords(input.recentFragments, keywordLimit);
@@ -146,7 +139,7 @@ export const buildFutureDiaryDraft = (
 
   const placeholder = "（ここに、今日の予定・やりたいこと・気づきを追記する）";
 
-  const bodyParagraphs = [opening, intentParagraph, calendarScheduleParagraph, keywordsParagraph, placeholder, closing].filter(
+  const bodyParagraphs = [opening, intentParagraph, selfModelParagraph, keywordsParagraph, placeholder, closing].filter(
     (paragraph): paragraph is string => paragraph !== null && paragraph.length > 0,
   );
 
@@ -164,19 +157,16 @@ export const buildFallbackFutureDiaryDraft = (input: {
   date: string;
   styleHints: StyleHints;
   draftIntent: string;
-  calendarScheduleLines?: readonly string[];
 }): FutureDiaryDraft => {
   const opening = input.styleHints.openingPhrases[0] ?? "今日はこんな一日になりそう。";
   const closing =
     input.styleHints.closingPhrases[0] ?? "最後に、今日の気づきを一行だけ残して終える。";
-  const calendarScheduleParagraph = toCalendarScheduleParagraph(input.calendarScheduleLines);
 
   return {
     title: `${input.date} の未来日記`,
     body: [
       opening,
       normalizeLine(input.draftIntent).length > 0 ? `今日は「${normalizeLine(input.draftIntent)}」を意識して過ごしたい。` : null,
-      calendarScheduleParagraph,
       "（ここに、今日の予定・やりたいこと・気づきを追記する）",
       closing,
     ]

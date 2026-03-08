@@ -30,7 +30,7 @@ type DiaryPageProps = {
 };
 
 export const DiaryPage = ({ app }: DiaryPageProps) => (
-  <section className="overflow-hidden rounded-3xl border border-border/80 bg-card/95 shadow-[0_20px_70px_-42px_rgba(10,20,60,0.45)]">
+  <section className="fd-surface">
     <div className="grid lg:grid-cols-[minmax(0,1fr)_18rem]">
       <DiaryEditorPane
         indicatorText={app.indicatorText}

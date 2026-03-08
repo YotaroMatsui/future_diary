@@ -6,7 +6,7 @@ const googleAuthRedirectUriFromEnv =
     : "";
 
 export const normalizeAppPath = (hash: string): AppPath =>
-  hash === appPaths.diary ? appPaths.diary : appPaths.login;
+  hash === appPaths.diary ? appPaths.diary : hash === appPaths.reflection ? appPaths.reflection : appPaths.login;
 
 export const readLocalStorageString = (key: string): string | null => {
   try {

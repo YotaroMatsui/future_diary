@@ -31,7 +31,7 @@
 - ドメイン型（`types.ts`）を定義する。
 - ドラフト生成usecase（`buildFutureDiaryDraft`）を提供する。
 - 外部LLM向け prompt と schema（`buildFutureDiaryDraftLlm*`, `futureDiaryDraftBodyJsonSchema`）を提供する。
-- ユーザーモデル（style/intent/preferences）のデフォルトと parse/serialize（pure）を提供する。
+- ユーザーモデル（style/intent/preferences/reflection）のデフォルトと parse/serialize（pure）を提供する。
 - 期待失敗を `Result` の `ok=false` で返す。
 
 <details><summary>根拠（Evidence）</summary>
@@ -142,6 +142,7 @@ const result = buildFutureDiaryDraft({
   date: "2026-02-07",
   userTimezone: "Asia/Tokyo",
   draftIntent: "落ち着いて始める",
+  selfModelPromptContext: "意図: 落ち着いて始める\\nなりたいあり方: 誠実に進める",
   preferences: { avoidCopyingFromFragments: true },
   recentFragments: [{ id: "f1", date: "2026-02-06", relevance: 0.9, text: "朝に散歩した。" }],
   styleHints: { openingPhrases: [], closingPhrases: [], maxParagraphs: 2 },
@@ -252,7 +253,7 @@ flowchart TD
 
 - [OPEN][TODO] 生成アルゴリズム（要約化の抑制）: 過去断片の再掲に寄り過ぎないように、style/intent/preferences model 主導で日次の下書きを生成する
   - 背景: 下書きが「過去日記の要約/焼き直し」に寄ると、ユーザが期待する「その日の入口」にならない。
-  - 現状: user model（intent/styleHints）+ 過去断片のキーワード抽出 + placeholder scaffold を組み立てる。
+  - 現状: user model（intent/styleHints/reflection）+ 過去断片のキーワード抽出 + placeholder scaffold を組み立てる。
   - 受入条件:
     - style/intent/preferences model を入力として生成できる（モデルはユーザが確認/編集可能）。
     - 過去断片の用途を style 用/内容用に分離し、内容断片は “引用” ではなく “発想の補助” として扱う（要約/再掲を抑制）。

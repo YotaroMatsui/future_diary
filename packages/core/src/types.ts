@@ -29,8 +29,8 @@ export interface GenerateFutureDiaryInput {
   recentFragments: readonly SourceFragment[];
   styleHints: StyleHints;
   draftIntent: string;
+  selfModelPromptContext: string;
   preferences: GenerationPreferences;
-  calendarScheduleLines?: readonly string[];
 }
 
 export interface FutureDiaryDraft {

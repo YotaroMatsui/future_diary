@@ -264,7 +264,6 @@ export type AuthMeResponse = {
     avatarUrl: string | null;
     authProvider: "legacy" | "google";
     migrationRequired: boolean;
-    googleCalendarConnected: boolean;
   };
   session: {
     kind: "legacy" | "google";
@@ -274,45 +273,6 @@ export type AuthMeResponse = {
 
 export const fetchAuthMe = async (baseUrl: string, accessToken: string) =>
   await getJson<AuthMeResponse>(`${baseUrl}/v1/auth/me`, { accessToken });
-
-export type GoogleCalendarAuthStartResponse = {
-  ok: true;
-  authorizationUrl: string;
-  stateExpiresAt: string;
-};
-
-export const startGoogleCalendarAuth = async (baseUrl: string, accessToken: string, payload: { redirectUri: string }) =>
-  await postJson<GoogleCalendarAuthStartResponse>(`${baseUrl}/v1/integrations/google-calendar/start`, payload, { accessToken });
-
-export type GoogleCalendarAuthExchangeResponse = {
-  ok: true;
-  connected: true;
-  connection: {
-    scope: string;
-    accessTokenExpiresAt: string;
-  };
-};
-
-export const exchangeGoogleCalendarAuth = async (
-  baseUrl: string,
-  accessToken: string,
-  payload: { code: string; state: string; redirectUri: string },
-) => await postJson<GoogleCalendarAuthExchangeResponse>(`${baseUrl}/v1/integrations/google-calendar/exchange`, payload, { accessToken });
-
-export type GoogleCalendarStatusResponse = {
-  ok: true;
-  connected: boolean;
-  connection: null | {
-    scope: string;
-    accessTokenExpiresAt: string;
-  };
-};
-
-export const fetchGoogleCalendarStatus = async (baseUrl: string, accessToken: string) =>
-  await getJson<GoogleCalendarStatusResponse>(`${baseUrl}/v1/integrations/google-calendar/status`, { accessToken });
-
-export const disconnectGoogleCalendar = async (baseUrl: string, accessToken: string) =>
-  await postJson<{ ok: true; disconnected: boolean }>(`${baseUrl}/v1/integrations/google-calendar/disconnect`, {}, { accessToken });
 
 export type UserModel = {
   version: 1;
@@ -324,6 +284,13 @@ export type UserModel = {
   };
   preferences: {
     avoidCopyingFromFragments: boolean;
+  };
+  reflection: {
+    diaryCharacterization: string;
+    writingStyle: string;
+    inferredProfile: string;
+    idealSelfImage: string;
+    realityPlan: string;
   };
 };
 

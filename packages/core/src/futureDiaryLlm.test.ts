@@ -17,6 +17,7 @@ describe("futureDiaryLlm", () => {
       date: "2026-02-07",
       userTimezone: "Asia/Tokyo",
       draftIntent: "落ち着いて始める",
+      selfModelPromptContext: "意図: 落ち着いて始める\nなりたいあり方: 焦らず誠実に進める",
       preferences: { avoidCopyingFromFragments: true },
       styleHints: {
         openingPhrases: ["今日は無理をせず、少しずつ整えていく一日にしたい。"],
@@ -24,7 +25,6 @@ describe("futureDiaryLlm", () => {
         maxParagraphs: 2,
       },
       recentFragments: [{ id: "f1", date: "2026-02-06", relevance: 0.9, text: "朝に散歩した。" }],
-      calendarScheduleLines: ["09:00-09:30 朝会", "13:00-14:00 設計レビュー"],
     });
 
     expect(prompt).toContain("日付: 2026-02-07");
@@ -32,8 +32,7 @@ describe("futureDiaryLlm", () => {
     expect(prompt).toContain("id=f1");
     expect(prompt).toContain("maxParagraphs: 2");
     expect(prompt).toContain("avoidCopyingFromFragments");
-    expect(prompt).toContain("当日の予定（Google Calendar連携）");
-    expect(prompt).toContain("09:00-09:30 朝会");
+    expect(prompt).toContain("自己モデル（SSOT）");
   });
 
   test("futureDiaryDraftBodyJsonSchema requires body", () => {

@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type AuthMeResponse,
+  type UserModel,
   deleteDiaryEntry,
-  exchangeGoogleCalendarAuth,
   exchangeGoogleAuth,
   fetchAuthMe,
   fetchFutureDiaryDraft,
+  fetchUserModel,
   listDiaryEntries,
   logout as logoutApi,
+  resetUserModel,
   saveDiaryEntry,
-  startGoogleCalendarAuth,
   startGoogleAuth,
+  updateUserModel,
 } from "./api";
 import {
   clearOauthParamsInUrl,
@@ -29,6 +31,7 @@ import {
   shiftMonthKey,
 } from "./future-diary-date";
 import { appPaths, storageKeys, type AppPath, type CalendarDay, type GenerationState, type SessionState } from "./future-diary-types";
+import { analyzeReflection, mergeInsightIntoUserModel, type ReflectionInsight } from "./reflection-analysis";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8787";
 
@@ -43,19 +46,8 @@ type GoogleAuthExchangePayload = {
 };
 
 type GoogleAuthExchangeResult = Awaited<ReturnType<typeof exchangeGoogleAuth>>;
-type GoogleCalendarAuthExchangeResult = Awaited<ReturnType<typeof exchangeGoogleCalendarAuth>>;
 
 const inFlightGoogleAuthExchange = new Map<string, Promise<GoogleAuthExchangeResult>>();
-const inFlightGoogleCalendarExchange = new Map<string, Promise<GoogleCalendarAuthExchangeResult>>();
-
-type PendingOauthFlow = "google-auth" | "google-calendar";
-
-const parsePendingOauthFlow = (value: string | null): PendingOauthFlow | null => {
-  if (value === "google-auth" || value === "google-calendar") {
-    return value;
-  }
-  return null;
-};
 
 const exchangeGoogleAuthOnce = async (payload: GoogleAuthExchangePayload): Promise<GoogleAuthExchangeResult> => {
   const key = `${payload.state}:${payload.code}:${payload.redirectUri}`;
@@ -71,29 +63,15 @@ const exchangeGoogleAuthOnce = async (payload: GoogleAuthExchangePayload): Promi
   return await request;
 };
 
-const exchangeGoogleCalendarAuthOnce = async (params: {
-  accessToken: string;
-  payload: { code: string; state: string; redirectUri: string };
-}): Promise<GoogleCalendarAuthExchangeResult> => {
-  const key = `${params.payload.state}:${params.payload.code}:${params.payload.redirectUri}`;
-  const existing = inFlightGoogleCalendarExchange.get(key);
-  if (existing) {
-    return await existing;
-  }
-
-  const request = exchangeGoogleCalendarAuth(apiBaseUrl, params.accessToken, params.payload).finally(() => {
-    inFlightGoogleCalendarExchange.delete(key);
-  });
-  inFlightGoogleCalendarExchange.set(key, request);
-  return await request;
-};
-
 export type FutureDiaryAppModel = {
   appPath: AppPath;
   session: SessionState | null;
-  googleCalendarConnected: boolean;
   bootstrapping: boolean;
   authLoading: boolean;
+  reflectionModel: UserModel | null;
+  reflectionInsight: ReflectionInsight | null;
+  reflectionLoading: boolean;
+  reflectionSaving: boolean;
   selectedDate: string;
   editorDate: string;
   draftBody: string;
@@ -107,8 +85,9 @@ export type FutureDiaryAppModel = {
   filledDates: ReadonlySet<string>;
   indicatorText: string;
   indicatorBusy: boolean;
+  navigateToDiary: () => void;
+  navigateToReflection: () => void;
   startGoogleAuth: () => Promise<void>;
-  startGoogleCalendarAuth: () => Promise<void>;
   logout: () => Promise<void>;
   focusEditor: () => void;
   blurEditor: () => Promise<void>;
@@ -118,6 +97,11 @@ export type FutureDiaryAppModel = {
   selectDate: (isoDate: string) => void;
   goPrevMonth: () => void;
   goNextMonth: () => void;
+  refreshReflectionInsight: () => Promise<void>;
+  changeDiaryPurpose: (value: string) => void;
+  changeDiaryStyle: (value: string) => void;
+  saveReflectionModel: () => Promise<void>;
+  resetReflectionModel: () => Promise<void>;
 };
 
 export const useFutureDiaryApp = (): FutureDiaryAppModel => {
@@ -125,6 +109,10 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
   const [session, setSession] = useState<SessionState | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [authLoading, setAuthLoading] = useState(false);
+  const [reflectionModel, setReflectionModel] = useState<UserModel | null>(null);
+  const [reflectionInsight, setReflectionInsight] = useState<ReflectionInsight | null>(null);
+  const [reflectionLoading, setReflectionLoading] = useState(false);
+  const [reflectionSaving, setReflectionSaving] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState<string>(() => formatDateInTimeZone(new Date(), detectBrowserTimezone()));
   const [editorDate, setEditorDate] = useState<string>(() => formatDateInTimeZone(new Date(), detectBrowserTimezone()));
@@ -146,6 +134,8 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
   const draftRequestIdRef = useRef(0);
   const saveRequestIdRef = useRef(0);
   const monthRequestIdRef = useRef(0);
+  const reflectionLoadRequestIdRef = useRef(0);
+  const reflectionSaveRequestIdRef = useRef(0);
 
   const pollTimerRef = useRef<number | null>(null);
   const typewriterTimerRef = useRef<number | null>(null);
@@ -260,8 +250,11 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
   const clearSession = useCallback(() => {
     writeLocalStorageString(storageKeys.accessToken, "");
     writeLocalStorageString(storageKeys.timezone, "");
-    writeLocalStorageString(storageKeys.oauthFlow, "");
     setSession(null);
+    setReflectionModel(null);
+    setReflectionInsight(null);
+    setReflectionLoading(false);
+    setReflectionSaving(false);
     setFilledDates(new Set());
     resetDraftState();
     navigate(appPaths.login, true);
@@ -279,6 +272,8 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
           user: me.user,
           session: me.session,
         });
+        setReflectionModel(null);
+        setReflectionInsight(null);
 
         const today = formatDateInTimeZone(new Date(), nextTimezone);
         setSelectedDate(today);
@@ -358,6 +353,58 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
 
       if (monthRequestIdRef.current === requestId) {
         setFilledDates(filled);
+      }
+    },
+    [session],
+  );
+
+  const loadReflectionContext = useCallback(
+    async (mode: "active" | "silent" = "active") => {
+      if (!session) {
+        return;
+      }
+
+      const requestId = reflectionLoadRequestIdRef.current + 1;
+      reflectionLoadRequestIdRef.current = requestId;
+
+      if (mode === "active") {
+        setReflectionLoading(true);
+      }
+
+      try {
+        const today = formatDateInTimeZone(new Date(), session.timezone);
+        const [fetchedModel, listed] = await Promise.all([
+          fetchUserModel(apiBaseUrl, session.accessToken),
+          listDiaryEntries(apiBaseUrl, session.accessToken, {
+            onOrBeforeDate: today,
+            limit: 60,
+          }),
+        ]);
+
+        if (reflectionLoadRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        const insight = analyzeReflection(
+          listed.entries.map((entry) => ({
+            date: entry.date,
+            body: entry.body,
+          })),
+        );
+
+        setReflectionInsight(insight);
+        setReflectionModel(mergeInsightIntoUserModel(fetchedModel.model, insight));
+        setErrorMessage(null);
+      } catch (error) {
+        if (reflectionLoadRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setErrorMessage(toErrorMessage(error));
+      } finally {
+        if (reflectionLoadRequestIdRef.current === requestId && mode === "active") {
+          setReflectionLoading(false);
+        }
       }
     },
     [session],
@@ -536,7 +583,6 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
 
       const storedToken = readLocalStorageString(storageKeys.accessToken);
       const storedTimezone = readLocalStorageString(storageKeys.timezone) ?? detectBrowserTimezone();
-      const pendingOauthFlow = parsePendingOauthFlow(readLocalStorageString(storageKeys.oauthFlow));
       const currentUrl = new URL(window.location.href);
       const code = currentUrl.searchParams.get("code");
       const state = currentUrl.searchParams.get("state");
@@ -546,34 +592,6 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
           setAuthLoading(true);
 
           const redirectUri = resolveGoogleAuthRedirectUri(currentUrl);
-          if (pendingOauthFlow === "google-calendar") {
-            if (!storedToken) {
-              throw new Error("Google Calendar 連携にはログイン済みセッションが必要です。");
-            }
-
-            await exchangeGoogleCalendarAuthOnce({
-              accessToken: storedToken,
-              payload: {
-                code,
-                state,
-                redirectUri,
-              },
-            });
-
-            writeLocalStorageString(storageKeys.oauthFlow, "");
-            const hydrated = await hydrateSessionByAccessToken(storedToken, storedTimezone);
-            if (!alive) {
-              return;
-            }
-
-            if (!hydrated) {
-              throw new Error("Google Calendar 連携後のセッション復元に失敗しました。再ログインしてください。");
-            }
-
-            navigate(appPaths.diary, true);
-            return;
-          }
-
           const exchanged = await exchangeGoogleAuthOnce({
             code,
             state,
@@ -595,17 +613,17 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
             avatarUrl: exchanged.user.avatarUrl,
             authProvider: exchanged.user.authProvider,
             migrationRequired: false,
-            googleCalendarConnected: false,
           };
 
           persistSession(exchanged.accessToken, timezone);
-          writeLocalStorageString(storageKeys.oauthFlow, "");
           setSession({
             accessToken: exchanged.accessToken,
             timezone,
             user,
             session: exchanged.session,
           });
+          setReflectionModel(null);
+          setReflectionInsight(null);
 
           const today = formatDateInTimeZone(new Date(), timezone);
           setSelectedDate(today);
@@ -630,7 +648,6 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
         navigate(appPaths.login, true);
       } catch (error) {
         if (alive) {
-          writeLocalStorageString(storageKeys.oauthFlow, "");
           setErrorMessage(toErrorMessage(error));
           navigate(appPaths.login, true);
         }
@@ -661,27 +678,35 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
       return;
     }
 
-    if (appPath !== appPaths.diary) {
+    if (appPath !== appPaths.diary && appPath !== appPaths.reflection) {
       navigate(appPaths.diary, true);
     }
   }, [appPath, bootstrapping, navigate, session]);
 
   useEffect(() => {
-    if (!session || selectedDate.length === 0) {
+    if (!session || selectedDate.length === 0 || appPath !== appPaths.diary) {
       return;
     }
 
     setVisibleMonthKey(selectedDate.slice(0, 7));
     void loadDraft(selectedDate, "active");
-  }, [loadDraft, selectedDate, session]);
+  }, [appPath, loadDraft, selectedDate, session]);
 
   useEffect(() => {
-    if (!session) {
+    if (!session || appPath !== appPaths.diary) {
       return;
     }
 
     void loadMonthFilledState(visibleMonthKey);
-  }, [loadMonthFilledState, session, visibleMonthKey]);
+  }, [appPath, loadMonthFilledState, session, visibleMonthKey]);
+
+  useEffect(() => {
+    if (!session || appPath !== appPaths.reflection || reflectionModel !== null) {
+      return;
+    }
+
+    void loadReflectionContext("active");
+  }, [appPath, loadReflectionContext, reflectionModel, session]);
 
   const blurEditor = useCallback(async () => {
     setIsEditorFocused(false);
@@ -722,35 +747,13 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
 
     try {
       const redirectUri = resolveGoogleAuthRedirectUri(new URL(window.location.href));
-      writeLocalStorageString(storageKeys.oauthFlow, "google-auth");
       const started = await startGoogleAuth(apiBaseUrl, { redirectUri });
       window.location.assign(started.authorizationUrl);
     } catch (error) {
-      writeLocalStorageString(storageKeys.oauthFlow, "");
       setErrorMessage(toErrorMessage(error));
       setAuthLoading(false);
     }
   }, []);
-
-  const startGoogleCalendarAuthFlow = useCallback(async () => {
-    if (!session) {
-      return;
-    }
-
-    setAuthLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const redirectUri = resolveGoogleAuthRedirectUri(new URL(window.location.href));
-      writeLocalStorageString(storageKeys.oauthFlow, "google-calendar");
-      const started = await startGoogleCalendarAuth(apiBaseUrl, session.accessToken, { redirectUri });
-      window.location.assign(started.authorizationUrl);
-    } catch (error) {
-      writeLocalStorageString(storageKeys.oauthFlow, "");
-      setErrorMessage(toErrorMessage(error));
-      setAuthLoading(false);
-    }
-  }, [session]);
 
   const logout = useCallback(async () => {
     if (!session) {
@@ -806,6 +809,140 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
     await loadDraft(selectedDate, "active");
   }, [loadDraft, selectedDate, session]);
 
+  const refreshReflectionInsight = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    const requestId = reflectionLoadRequestIdRef.current + 1;
+    reflectionLoadRequestIdRef.current = requestId;
+    setReflectionLoading(true);
+
+    try {
+      const today = formatDateInTimeZone(new Date(), session.timezone);
+      const listed = await listDiaryEntries(apiBaseUrl, session.accessToken, {
+        onOrBeforeDate: today,
+        limit: 60,
+      });
+
+      if (reflectionLoadRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const insight = analyzeReflection(
+        listed.entries.map((entry) => ({
+          date: entry.date,
+          body: entry.body,
+        })),
+      );
+      setReflectionInsight(insight);
+      setReflectionModel((current) => (current ? mergeInsightIntoUserModel(current, insight) : current));
+      setErrorMessage(null);
+    } catch (error) {
+      if (reflectionLoadRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setErrorMessage(toErrorMessage(error));
+    } finally {
+      if (reflectionLoadRequestIdRef.current === requestId) {
+        setReflectionLoading(false);
+      }
+    }
+  }, [session]);
+
+  const changeDiaryPurpose = useCallback((value: string) => {
+    setReflectionModel((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        intent: value,
+      };
+    });
+  }, []);
+
+  const changeDiaryStyle = useCallback((value: string) => {
+    setReflectionModel((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        reflection: {
+          ...current.reflection,
+          writingStyle: value,
+        },
+      };
+    });
+  }, []);
+
+  const saveReflectionModel = useCallback(async () => {
+    if (!session || !reflectionModel) {
+      return;
+    }
+
+    const requestId = reflectionSaveRequestIdRef.current + 1;
+    reflectionSaveRequestIdRef.current = requestId;
+    setReflectionSaving(true);
+    setErrorMessage(null);
+
+    try {
+      const modelToSave = reflectionInsight ? mergeInsightIntoUserModel(reflectionModel, reflectionInsight) : reflectionModel;
+      const updated = await updateUserModel(apiBaseUrl, session.accessToken, modelToSave);
+      if (reflectionSaveRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const merged = reflectionInsight ? mergeInsightIntoUserModel(updated.model, reflectionInsight) : updated.model;
+      setReflectionModel(merged);
+    } catch (error) {
+      if (reflectionSaveRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setErrorMessage(toErrorMessage(error));
+    } finally {
+      if (reflectionSaveRequestIdRef.current === requestId) {
+        setReflectionSaving(false);
+      }
+    }
+  }, [reflectionInsight, reflectionModel, session]);
+
+  const resetReflectionModelState = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    const requestId = reflectionSaveRequestIdRef.current + 1;
+    reflectionSaveRequestIdRef.current = requestId;
+    setReflectionSaving(true);
+    setErrorMessage(null);
+
+    try {
+      const reset = await resetUserModel(apiBaseUrl, session.accessToken);
+      if (reflectionSaveRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const merged = reflectionInsight ? mergeInsightIntoUserModel(reset.model, reflectionInsight) : reset.model;
+      setReflectionModel(merged);
+    } catch (error) {
+      if (reflectionSaveRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setErrorMessage(toErrorMessage(error));
+    } finally {
+      if (reflectionSaveRequestIdRef.current === requestId) {
+        setReflectionSaving(false);
+      }
+    }
+  }, [reflectionInsight, session]);
+
   const selectDate = useCallback((isoDate: string) => {
     setSelectedDate(isoDate);
     setErrorMessage(null);
@@ -818,6 +955,14 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
   const goNextMonth = useCallback(() => {
     setVisibleMonthKey((current) => shiftMonthKey(current, 1));
   }, []);
+
+  const navigateToDiary = useCallback(() => {
+    navigate(appPaths.diary, true);
+  }, [navigate]);
+
+  const navigateToReflection = useCallback(() => {
+    navigate(appPaths.reflection, true);
+  }, [navigate]);
 
   const calendarDays = useMemo(() => buildCalendarDays(visibleMonthKey), [visibleMonthKey]);
   const monthLabel = useMemo(() => formatMonthLabel(visibleMonthKey), [visibleMonthKey]);
@@ -845,9 +990,12 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
   return {
     appPath,
     session,
-    googleCalendarConnected: session?.user.googleCalendarConnected ?? false,
     bootstrapping,
     authLoading,
+    reflectionModel,
+    reflectionInsight,
+    reflectionLoading,
+    reflectionSaving,
     selectedDate,
     editorDate,
     draftBody,
@@ -861,8 +1009,9 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
     filledDates,
     indicatorText,
     indicatorBusy,
+    navigateToDiary,
+    navigateToReflection,
     startGoogleAuth: startGoogleAuthFlow,
-    startGoogleCalendarAuth: startGoogleCalendarAuthFlow,
     logout,
     focusEditor,
     blurEditor,
@@ -872,5 +1021,10 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
     selectDate,
     goPrevMonth,
     goNextMonth,
+    refreshReflectionInsight,
+    changeDiaryPurpose,
+    changeDiaryStyle,
+    saveReflectionModel,
+    resetReflectionModel: resetReflectionModelState,
   };
 };

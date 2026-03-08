@@ -3,6 +3,7 @@ import type { AuthMeResponse } from "./api";
 export const appPaths = {
   login: "#/login",
   diary: "#/diary",
+  reflection: "#/reflection",
 } as const;
 
 export type AppPath = (typeof appPaths)[keyof typeof appPaths];
@@ -12,7 +13,6 @@ export type GenerationState = "idle" | "creating" | "processing" | "failed" | "c
 export const storageKeys = {
   accessToken: "futureDiary.accessToken",
   timezone: "futureDiary.timezone",
-  oauthFlow: "futureDiary.oauthFlow",
 } as const;
 
 export const weekdayLabels = ["日", "月", "火", "水", "木", "金", "土"] as const;

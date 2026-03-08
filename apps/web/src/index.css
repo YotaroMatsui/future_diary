@@ -71,3 +71,21 @@
     margin: 0;
   }
 }
+
+@layer components {
+  .fd-page {
+    @apply mx-auto flex w-full max-w-5xl flex-col gap-3 px-3 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4;
+  }
+
+  .fd-surface {
+    @apply overflow-hidden rounded-3xl border border-border/80 bg-card/95 shadow-[0_20px_70px_-42px_rgba(10,20,60,0.45)];
+  }
+
+  .fd-field-label {
+    @apply mb-1.5 text-xs font-semibold tracking-wide text-muted-foreground;
+  }
+
+  .fd-helper-text {
+    @apply mt-1 text-[11px] text-muted-foreground;
+  }
+}
