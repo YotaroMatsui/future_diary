@@ -1,6 +1,6 @@
 # apps/api
 
-`apps/api/src/index.ts` は Hono Worker の HTTP 境界を実装し、`/health` と未来日記生成トリガ（`/v1/future-diary/draft`）および diary CRUD（`/v1/diary/*`）を提供する。生成/埋め込みは Queue consumer（`default.queue`）で非同期実行し、同一 user/day の重複実行は Durable Object lock で抑止する。Google Calendar 連携状態がある場合は（primary に加えて非 hidden の閲覧可能カレンダーを横断して）当日の予定を取得し、生成コンテキストへ注入する。
+`apps/api/src/index.ts` は Hono Worker の HTTP 境界を実装し、`/health` と未来日記生成トリガ（`/v1/future-diary/draft`）および diary CRUD（`/v1/diary/*`）を提供する。生成/埋め込みは Queue consumer（`default.queue`）で非同期実行し、同一 user/day の重複実行は Durable Object lock で抑止する。Google Calendar 連携状態がある場合は（primary に加えて閲覧可能カレンダーを横断して）当日の予定を取得し、生成コンテキストへ注入する。
 
 - パス: `apps/api/README.md`
 - 状態: Implemented

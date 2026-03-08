@@ -437,7 +437,7 @@ const fetchVisibleCalendarIds = async (params: {
   do {
     const url = new URL(googleCalendarListEndpoint);
     url.searchParams.set("maxResults", "250");
-    url.searchParams.set("showHidden", "false");
+    url.searchParams.set("showHidden", "true");
     url.searchParams.set("showDeleted", "false");
     url.searchParams.set("minAccessRole", "reader");
     if (nextPageToken) {
@@ -465,9 +465,6 @@ const fetchVisibleCalendarIds = async (params: {
     for (const item of items) {
       const id = item.id?.trim();
       if (!id) {
-        continue;
-      }
-      if (item.hidden === true) {
         continue;
       }
 
