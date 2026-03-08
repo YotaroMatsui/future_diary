@@ -8,6 +8,7 @@ const googleTokenEndpoint = "https://oauth2.googleapis.com/token";
 const googleCalendarApiBase = "https://www.googleapis.com/calendar/v3";
 const googleCalendarListEndpoint = `${googleCalendarApiBase}/users/me/calendarList`;
 const defaultCalendarScope = "https://www.googleapis.com/auth/calendar.readonly";
+const maxCalendarsToFetch = 64;
 
 export class GoogleCalendarError extends Error {
   readonly type: string;
@@ -58,6 +59,11 @@ type GoogleCalendarListItem = {
   accessRole?: string;
 };
 
+type GoogleCalendarListResponse = {
+  items?: GoogleCalendarListItem[];
+  nextPageToken?: string;
+};
+
 const parseIsoDate = (isoDate: string): { year: number; month: number; day: number } | null => {
   const match = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) {
@@ -89,65 +95,10 @@ const shiftIsoDate = (isoDate: string, days: number): string | null => {
   return shifted.toISOString().slice(0, 10);
 };
 
-const parseTimeZoneOffsetMs = (timeZoneName: string): number | null => {
-  const normalized = timeZoneName.trim();
-  if (normalized === "GMT" || normalized === "UTC") {
-    return 0;
-  }
-
-  const match = normalized.match(/^(?:GMT|UTC)([+-])(\d{1,2})(?::?(\d{2}))?$/i);
-  if (!match) {
-    return null;
-  }
-
-  const sign = match[1] === "+" ? 1 : -1;
-  const hours = Number.parseInt(match[2], 10);
-  const minutes = Number.parseInt(match[3] ?? "0", 10);
-
-  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) {
-    return null;
-  }
-
-  return sign * ((hours * 60 + minutes) * 60 * 1000);
-};
-
-const getTimeZoneOffsetMs = (at: Date, timeZone: string): number | null => {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    timeZoneName: "shortOffset",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-
-  const name = formatter.formatToParts(at).find((part) => part.type === "timeZoneName")?.value ?? "";
-  return parseTimeZoneOffsetMs(name);
-};
-
-const toUtcIsoForLocalDateStart = (isoDate: string, timeZone: string): string => {
-  const parsed = parseIsoDate(isoDate);
-  if (!parsed) {
-    return `${isoDate}T00:00:00.000Z`;
-  }
-
-  const midnightUtcMs = Date.UTC(parsed.year, parsed.month - 1, parsed.day, 0, 0, 0, 0);
-  const initialOffsetMs = getTimeZoneOffsetMs(new Date(midnightUtcMs), timeZone);
-  if (initialOffsetMs === null) {
-    return new Date(midnightUtcMs).toISOString();
-  }
-
-  const candidateMs = midnightUtcMs - initialOffsetMs;
-  const resolvedOffsetMs = getTimeZoneOffsetMs(new Date(candidateMs), timeZone) ?? initialOffsetMs;
-  return new Date(midnightUtcMs - resolvedOffsetMs).toISOString();
-};
-
-const buildDateWindow = (date: string, timezone: string): { timeMin: string; timeMax: string } => {
-  const nextDate = shiftIsoDate(date, 1);
-  if (!nextDate) {
+const buildDateWindow = (date: string): { timeMin: string; timeMax: string } => {
+  const prevDate = shiftIsoDate(date, -1);
+  const nextNextDate = shiftIsoDate(date, 2);
+  if (!prevDate || !nextNextDate) {
     return {
       timeMin: `${date}T00:00:00.000Z`,
       timeMax: `${date}T23:59:59.999Z`,
@@ -155,8 +106,8 @@ const buildDateWindow = (date: string, timezone: string): { timeMin: string; tim
   }
 
   return {
-    timeMin: toUtcIsoForLocalDateStart(date, timezone),
-    timeMax: toUtcIsoForLocalDateStart(nextDate, timezone),
+    timeMin: `${prevDate}T00:00:00.000Z`,
+    timeMax: `${nextNextDate}T00:00:00.000Z`,
   };
 };
 
@@ -393,51 +344,144 @@ const toEventSortKey = (event: GoogleCalendarEventItem): number => {
   return Number.MAX_SAFE_INTEGER;
 };
 
-const fetchSelectedCalendarIds = async (params: {
+const toIsoDateInTimeZone = (at: Date, timeZone: string): string | null => {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(at);
+
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+
+    if (!year || !month || !day) {
+      return null;
+    }
+
+    return `${year}-${month}-${day}`;
+  } catch {
+    return null;
+  }
+};
+
+const toIsoDateFromDateTime = (isoDateTime: string, timeZone: string): string | null => {
+  const parsedMs = Date.parse(isoDateTime);
+  if (!Number.isFinite(parsedMs)) {
+    return null;
+  }
+
+  return toIsoDateInTimeZone(new Date(parsedMs), timeZone) ?? new Date(parsedMs).toISOString().slice(0, 10);
+};
+
+const eventOverlapsLocalDate = (event: GoogleCalendarEventItem, date: string, timeZone: string): boolean => {
+  if (event.status === "cancelled") {
+    return false;
+  }
+
+  if (event.start?.date) {
+    const startDate = event.start.date;
+    const endDateExclusive = event.end?.date ?? shiftIsoDate(startDate, 1);
+    if (!endDateExclusive) {
+      return startDate === date;
+    }
+
+    return startDate <= date && date < endDateExclusive;
+  }
+
+  const startDateTime = event.start?.dateTime;
+  if (!startDateTime) {
+    return false;
+  }
+
+  const startDate = toIsoDateFromDateTime(startDateTime, timeZone);
+  if (!startDate) {
+    return false;
+  }
+
+  const endDateTime = event.end?.dateTime;
+  const endMs = endDateTime ? Date.parse(endDateTime) : Number.NaN;
+  const startMs = Date.parse(startDateTime);
+  const endDate = Number.isFinite(endMs) && endMs > startMs
+    ? toIsoDateInTimeZone(new Date(endMs - 1), timeZone) ?? new Date(endMs - 1).toISOString().slice(0, 10)
+    : startDate;
+
+  return startDate <= date && date <= endDate;
+};
+
+const fetchVisibleCalendarIds = async (params: {
   accessToken: string;
   maxCalendars: number;
 }): Promise<readonly string[]> => {
-  const url = new URL(googleCalendarListEndpoint);
-  url.searchParams.set("maxResults", "100");
-  url.searchParams.set("showHidden", "false");
-  url.searchParams.set("showDeleted", "false");
-  url.searchParams.set("minAccessRole", "reader");
+  const seenIds = new Set<string>();
+  const prioritizedIds: string[] = [];
+  const regularIds: string[] = [];
 
-  const response = await fetch(url, {
-    method: "GET",
-    headers: {
-      authorization: `Bearer ${params.accessToken}`,
-    },
-  });
-
-  if (!response.ok) {
-    throw new GoogleCalendarError(
-      "GOOGLE_CALENDAR_FETCH_FAILED",
-      `Google Calendar list request failed (${response.status})`,
-      response.status === 401 ? 401 : 502,
-    );
-  }
-
-  const json = (await response.json().catch(() => null)) as { items?: GoogleCalendarListItem[] } | null;
-  const items = Array.isArray(json?.items) ? json.items : [];
-
-  const ids = new Set<string>();
-  for (const item of items) {
-    const id = item.id?.trim();
-    if (!id) {
-      continue;
+  const addCalendarId = (id: string, prioritized: boolean): void => {
+    if (seenIds.has(id)) {
+      return;
     }
-    if (item.hidden === true) {
-      continue;
+    seenIds.add(id);
+    if (prioritized) {
+      prioritizedIds.push(id);
+      return;
     }
-    if (item.selected === false) {
-      continue;
-    }
-    ids.add(id);
-  }
-  ids.add("primary");
+    regularIds.push(id);
+  };
 
-  return [...ids].slice(0, Math.max(1, params.maxCalendars));
+  addCalendarId("primary", true);
+
+  let nextPageToken: string | null = null;
+  do {
+    const url = new URL(googleCalendarListEndpoint);
+    url.searchParams.set("maxResults", "250");
+    url.searchParams.set("showHidden", "false");
+    url.searchParams.set("showDeleted", "false");
+    url.searchParams.set("minAccessRole", "reader");
+    if (nextPageToken) {
+      url.searchParams.set("pageToken", nextPageToken);
+    }
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${params.accessToken}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new GoogleCalendarError(
+        "GOOGLE_CALENDAR_FETCH_FAILED",
+        `Google Calendar list request failed (${response.status})`,
+        response.status === 401 ? 401 : 502,
+      );
+    }
+
+    const json = (await response.json().catch(() => null)) as GoogleCalendarListResponse | null;
+    const items = Array.isArray(json?.items) ? json.items : [];
+
+    for (const item of items) {
+      const id = item.id?.trim();
+      if (!id) {
+        continue;
+      }
+      if (item.hidden === true) {
+        continue;
+      }
+
+      addCalendarId(id, item.primary === true || item.selected === true);
+      if (seenIds.size >= Math.max(1, params.maxCalendars)) {
+        break;
+      }
+    }
+
+    const token = json?.nextPageToken?.trim();
+    nextPageToken = token && seenIds.size < Math.max(1, params.maxCalendars) ? token : null;
+  } while (nextPageToken);
+
+  return [...prioritizedIds, ...regularIds].slice(0, Math.max(1, params.maxCalendars));
 };
 
 const fetchCalendarEventsById = async (params: {
@@ -491,14 +535,15 @@ export const fetchGoogleCalendarScheduleLines = async (params: {
   timezone: string;
   maxResults?: number;
 }): Promise<readonly string[]> => {
-  const { timeMin, timeMax } = buildDateWindow(params.date, params.timezone);
+  const { timeMin, timeMax } = buildDateWindow(params.date);
   const maxResults = params.maxResults ?? 20;
+  const calendarFetchMaxResults = Math.max(50, Math.min(250, maxResults * 6));
 
   let calendarIds: readonly string[] = ["primary"];
   try {
-    calendarIds = await fetchSelectedCalendarIds({
+    calendarIds = await fetchVisibleCalendarIds({
       accessToken: params.accessToken,
-      maxCalendars: 8,
+      maxCalendars: maxCalendarsToFetch,
     });
   } catch {
     // Fallback to primary if calendar list call fails (for transient/network reasons).
@@ -507,26 +552,37 @@ export const fetchGoogleCalendarScheduleLines = async (params: {
   }
 
   const mergedItems: GoogleCalendarEventItem[] = [];
-  for (const calendarId of calendarIds) {
-    try {
-      const items = await fetchCalendarEventsById({
-        accessToken: params.accessToken,
-        calendarId,
-        timeMin,
-        timeMax,
-        timezone: params.timezone,
-        maxResults,
-      });
-      mergedItems.push(...items);
-    } catch (error) {
-      if (calendarId === "primary") {
-        throw error;
+  const fetchResults = await Promise.all(
+    calendarIds.map(async (calendarId) => {
+      try {
+        const items = await fetchCalendarEventsById({
+          accessToken: params.accessToken,
+          calendarId,
+          timeMin,
+          timeMax,
+          timezone: params.timezone,
+          maxResults: calendarFetchMaxResults,
+        });
+        return { calendarId, items } as const;
+      } catch (error) {
+        return { calendarId, error } as const;
+      }
+    }),
+  );
+
+  for (const result of fetchResults) {
+    if ("error" in result) {
+      if (result.calendarId === "primary") {
+        throw result.error;
       }
       // Ignore non-primary calendar fetch failures and continue.
+      continue;
     }
+    mergedItems.push(...result.items);
   }
 
   const lines = mergedItems
+    .filter((item) => eventOverlapsLocalDate(item, params.date, params.timezone))
     .sort((left, right) => toEventSortKey(left) - toEventSortKey(right))
     .map((item) => toEventLine(item, params.timezone))
     .filter((line): line is string => typeof line === "string" && line.length > 0)

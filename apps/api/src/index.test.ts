@@ -1327,25 +1327,19 @@ describe("future-diary-api", () => {
     globalThis.fetch = async (input, init) => {
       const url = input instanceof Request ? input.url : String(input);
       if (url.startsWith("https://www.googleapis.com/calendar/v3/users/me/calendarList")) {
+        const extraCalendars = Array.from({ length: 9 }, (_, index) => ({
+          id: `team-${index + 1}@example.com`,
+          selected: false,
+        }));
         return new Response(
           JSON.stringify({
-            items: [
-              { id: "primary", selected: true },
-              { id: "team.calendar@example.com", selected: true },
-            ],
+            items: [{ id: "primary", selected: true }, ...extraCalendars],
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
 
-      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events")) {
-        return new Response(JSON.stringify({ items: [] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }
-
-      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/team.calendar%40example.com/events")) {
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/team-9%40example.com/events")) {
         const authHeader = init?.headers ? new Headers(init.headers as HeadersInit).get("authorization") : null;
         if (authHeader !== "Bearer calendar-active-token") {
           return new Response("unauthorized", { status: 401 });
@@ -1363,6 +1357,13 @@ describe("future-diary-api", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/")) {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       return await originalFetch(input, init);
@@ -1696,18 +1697,11 @@ describe("future-diary-api", () => {
           JSON.stringify({
             items: [
               { id: "primary", selected: true },
-              { id: "team.calendar@example.com", selected: true },
+              { id: "team.calendar@example.com", selected: false },
             ],
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
-      }
-
-      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events")) {
-        return new Response(JSON.stringify({ items: [] }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
       }
 
       if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/team.calendar%40example.com/events")) {
@@ -1728,6 +1722,13 @@ describe("future-diary-api", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/")) {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
 
       if (!url.endsWith("/v1/responses")) {
