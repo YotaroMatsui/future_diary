@@ -104,6 +104,24 @@ const parseStoredUserModelSnapshotJson = (json: string | null): UserModelV1 | nu
   return result.ok ? result.value : null;
 };
 
+const normalizeLine = (line: string): string => line.trim().replace(/\s+/g, " ");
+
+const normalizeCalendarScheduleLines = (lines: readonly string[] | undefined): string[] =>
+  (lines ?? []).map((line) => normalizeLine(line)).filter((line) => line.length > 0).slice(0, 8);
+
+const includesCalendarScheduleInBody = (body: string, scheduleLines: readonly string[]): boolean =>
+  body.includes("今日の予定メモ:") || scheduleLines.some((line) => body.includes(line));
+
+const applyCalendarScheduleOverlay = (body: string, scheduleLines: readonly string[]): string => {
+  if (scheduleLines.length === 0) {
+    return body;
+  }
+  if (includesCalendarScheduleInBody(body, scheduleLines)) {
+    return body;
+  }
+  return `今日の予定メモ:\n${scheduleLines.map((line) => `- ${line}`).join("\n")}\n\n${body}`;
+};
+
 type WorkerBindings = {
   APP_ENV?: string;
   CORS_ALLOW_ORIGINS?: string;
@@ -1217,6 +1235,7 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
       message: error instanceof Error ? error.message : String(error),
     });
   }
+  const normalizedCalendarScheduleLines = normalizeCalendarScheduleLines(calendarScheduleLines);
 
   let entry = await diaryRepo.findByUserAndDate(userId, date);
   const existedBefore = entry !== null;
@@ -1336,11 +1355,18 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
     }
   }
 
+  const rawDraftBody = entry.finalText ?? entry.generatedText;
+  const draftBody =
+    entry.finalText === null && entry.generationStatus === "completed"
+      ? applyCalendarScheduleOverlay(rawDraftBody, normalizedCalendarScheduleLines)
+      : rawDraftBody;
+  const calendarScheduleApplied = includesCalendarScheduleInBody(draftBody, normalizedCalendarScheduleLines);
+
   return context.json({
     ok: true,
     draft: {
       title: `${date} の未来日記`,
-      body: entry.finalText ?? entry.generatedText,
+      body: draftBody,
       sourceFragmentIds: entry.generationSourceFragmentIds,
       keywords: entry.generationKeywords,
     },
@@ -1358,6 +1384,8 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
         keywords: entry.generationKeywords,
         sourceFragmentIds: entry.generationSourceFragmentIds,
       },
+      calendarScheduleLines: normalizedCalendarScheduleLines,
+      calendarScheduleApplied,
       pollAfterMs: entry.generationStatus === "completed" ? 0 : 1500,
     },
   });

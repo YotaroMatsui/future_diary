@@ -188,6 +188,8 @@ export type FutureDiaryDraftResponse = {
       keywords: readonly string[];
       sourceFragmentIds: readonly string[];
     };
+    calendarScheduleLines: readonly string[];
+    calendarScheduleApplied: boolean;
     pollAfterMs: number;
   };
 };

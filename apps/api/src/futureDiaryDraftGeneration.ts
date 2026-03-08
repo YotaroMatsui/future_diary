@@ -49,6 +49,37 @@ const futureDiaryDraftBodySchema = z.object({
 const truncateForPrompt = (text: string, maxChars: number): string =>
   text.length <= maxChars ? text : text.slice(0, maxChars) + "...";
 
+const normalizeLine = (line: string): string => line.trim().replace(/\s+/g, " ");
+
+const normalizeCalendarScheduleLines = (lines: readonly string[] | undefined): string[] =>
+  (lines ?? []).map((line) => normalizeLine(line)).filter((line) => line.length > 0).slice(0, 8);
+
+const toCalendarScheduleParagraph = (lines: readonly string[]): string | null => {
+  if (lines.length === 0) {
+    return null;
+  }
+  return `今日の予定メモ:\n${lines.map((line) => `- ${line}`).join("\n")}`;
+};
+
+const includesCalendarScheduleInBody = (body: string, scheduleLines: readonly string[]): boolean =>
+  body.includes("今日の予定メモ:") || scheduleLines.some((line) => body.includes(line));
+
+const injectCalendarScheduleToBody = (body: string, scheduleLines: readonly string[]): string => {
+  if (scheduleLines.length === 0) {
+    return body;
+  }
+  if (includesCalendarScheduleInBody(body, scheduleLines)) {
+    return body;
+  }
+
+  const scheduleParagraph = toCalendarScheduleParagraph(scheduleLines);
+  if (!scheduleParagraph) {
+    return body;
+  }
+
+  return `${scheduleParagraph}\n\n${body}`;
+};
+
 export const generateFutureDiaryDraft = async (params: {
   env: DraftGenerationEnv;
   diaryRepo: DiaryRepository;
@@ -118,6 +149,7 @@ export const generateFutureDiaryDraft = async (params: {
   }));
 
   const keywordLimit = Math.min(10, Math.max(3, styleHints.maxParagraphs * 3));
+  const normalizedCalendarScheduleLines = normalizeCalendarScheduleLines(params.calendarScheduleLines);
 
   let source: DraftGenerationSource = "deterministic";
   let draft: { title: string; body: string; sourceFragmentIds: readonly string[]; keywords: readonly string[] } | null =
@@ -182,7 +214,7 @@ export const generateFutureDiaryDraft = async (params: {
         source = "llm";
         draft = {
           title: `${date} の未来日記`,
-          body: parsedBody.data.body,
+          body: injectCalendarScheduleToBody(parsedBody.data.body, normalizedCalendarScheduleLines),
           sourceFragmentIds: llmFragments.map((fragment) => fragment.id),
           keywords: deriveKeywords(llmFragments, keywordLimit),
         };
@@ -232,7 +264,10 @@ export const generateFutureDiaryDraft = async (params: {
 
   return {
     source,
-    draft,
+    draft: {
+      ...draft,
+      body: injectCalendarScheduleToBody(draft.body, normalizedCalendarScheduleLines),
+    },
     sourceEntriesToIndex,
   };
 };

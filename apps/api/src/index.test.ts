@@ -1667,10 +1667,30 @@ describe("future-diary-api", () => {
     expect(meResponse.status).toBe(401);
   });
 
-  test("POST /v1/future-diary/draft uses OpenAI when OPENAI_API_KEY is set", async () => {
+  test("POST /v1/future-diary/draft uses OpenAI and injects calendar schedule when available", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (input, init) => {
       const url = input instanceof Request ? input.url : String(input);
+
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events")) {
+        const authHeader = init?.headers ? new Headers(init.headers as HeadersInit).get("authorization") : null;
+        if (authHeader !== "Bearer calendar-active-token") {
+          return new Response("unauthorized", { status: 401 });
+        }
+
+        return new Response(
+          JSON.stringify({
+            items: [
+              {
+                summary: "設計レビュー",
+                start: { dateTime: "2026-02-07T10:00:00+09:00" },
+                end: { dateTime: "2026-02-07T10:30:00+09:00" },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
 
       if (!url.endsWith("/v1/responses")) {
         return originalFetch(input, init);
@@ -1711,6 +1731,28 @@ describe("future-diary-api", () => {
       };
 
       const accessToken = await createAuthSession(env);
+      const meResponse = await app.request(
+        "/v1/auth/me",
+        {
+          headers: authJsonHeaders(accessToken),
+        },
+        env,
+      );
+      const meJson = (await meResponse.json()) as { user?: { id?: string } };
+      const userId = meJson.user?.id;
+      if (!userId) {
+        throw new Error("Failed to resolve user id");
+      }
+
+      db.__data.googleCalendarConnections.set(userId, {
+        user_id: userId,
+        access_token: "calendar-active-token",
+        refresh_token: "calendar-refresh-token",
+        access_token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        scope: "https://www.googleapis.com/auth/calendar.readonly",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
 
       const response = await app.request(
         "/v1/future-diary/draft",
@@ -1727,13 +1769,17 @@ describe("future-diary-api", () => {
 
       const json = (await response.json()) as {
         ok: boolean;
-        meta?: { source?: string };
+        meta?: { source?: string; calendarScheduleApplied?: boolean; calendarScheduleLines?: readonly string[] };
         draft?: { body: string };
       };
 
       expect(response.status).toBe(200);
       expect(json.ok).toBe(true);
       expect(json.meta?.source).toBe("llm");
+      expect(json.meta?.calendarScheduleApplied).toBe(true);
+      expect(json.meta?.calendarScheduleLines).toContain("10:00-10:30 設計レビュー");
+      expect(json.draft?.body).toContain("今日の予定メモ:");
+      expect(json.draft?.body).toContain("10:00-10:30 設計レビュー");
       expect(json.draft?.body).toContain("今日は少しずつ整えていく一日にしたい。");
     } finally {
       globalThis.fetch = originalFetch;

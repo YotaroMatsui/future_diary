@@ -550,6 +550,16 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
           return;
         }
 
+        if (import.meta.env.DEV) {
+          console.info("[dev] Google Calendar schedules in draft response", {
+            date: targetDate,
+            source: response.meta.source,
+            generationStatus: response.meta.generationStatus,
+            applied: response.meta.calendarScheduleApplied,
+            lines: response.meta.calendarScheduleLines,
+          });
+        }
+
         const nextGenerationState: GenerationState =
           response.meta.generationStatus === "created"
             ? "creating"

@@ -87,6 +87,8 @@ export const ReflectionPage = ({
           <div>
             <p className="fd-field-label">日記の目的</p>
             <Textarea
+              id="reflection-purpose-main"
+              name="reflection-purpose-main"
               value={model.intent}
               onChange={(event) => {
                 onChangeDiaryPurpose(event.target.value);
@@ -99,6 +101,8 @@ export const ReflectionPage = ({
           <div>
             <p className="fd-field-label">日記の特徴（筆致）</p>
             <Textarea
+              id="reflection-style-main"
+              name="reflection-style-main"
               value={model.reflection.writingStyle}
               onChange={(event) => {
                 onChangeDiaryStyle(event.target.value);
@@ -125,6 +129,8 @@ export const ReflectionPage = ({
             </div>
 
             <Textarea
+              id="reflection-knowledge-main"
+              name="reflection-knowledge-main"
               value={model.reflection.inferredProfile}
               readOnly
               aria-readonly="true"
@@ -196,6 +202,8 @@ export const ReflectionPage = ({
               <div>
                 <p className="fd-field-label">生成に使用されるプロンプト全体（プレビュー）</p>
                 <Textarea
+                  id="prompt-preview-drawer"
+                  name="prompt-preview-drawer"
                   value={promptPreview}
                   readOnly
                   aria-readonly="true"
@@ -207,6 +215,8 @@ export const ReflectionPage = ({
               <div>
                 <p className="fd-field-label">日記の目的</p>
                 <Textarea
+                  id="reflection-purpose-drawer"
+                  name="reflection-purpose-drawer"
                   value={model.intent}
                   onChange={(event) => {
                     onChangeDiaryPurpose(event.target.value);
@@ -218,6 +228,8 @@ export const ReflectionPage = ({
               <div>
                 <p className="fd-field-label">日記の特徴（筆致）</p>
                 <Textarea
+                  id="reflection-style-drawer"
+                  name="reflection-style-drawer"
                   value={model.reflection.writingStyle}
                   onChange={(event) => {
                     onChangeDiaryStyle(event.target.value);
@@ -230,6 +242,8 @@ export const ReflectionPage = ({
                 <div>
                   <p className="fd-field-label">文頭フレーズ</p>
                   <Textarea
+                    id="prompt-opening-drawer"
+                    name="prompt-opening-drawer"
                     value={openingPhrase}
                     onChange={(event) => {
                       onChangeOpeningPhrase(event.target.value);
@@ -240,6 +254,8 @@ export const ReflectionPage = ({
                 <div>
                   <p className="fd-field-label">文末フレーズ</p>
                   <Textarea
+                    id="prompt-closing-drawer"
+                    name="prompt-closing-drawer"
                     value={closingPhrase}
                     onChange={(event) => {
                       onChangeClosingPhrase(event.target.value);
@@ -253,6 +269,8 @@ export const ReflectionPage = ({
                 <div>
                   <p className="fd-field-label">段落数（1-6）</p>
                   <Input
+                    id="prompt-max-paragraphs-drawer"
+                    name="prompt-max-paragraphs-drawer"
                     type="number"
                     min={1}
                     max={6}
