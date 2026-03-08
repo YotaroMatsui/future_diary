@@ -1326,7 +1326,26 @@ describe("future-diary-api", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (input, init) => {
       const url = input instanceof Request ? input.url : String(input);
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/users/me/calendarList")) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              { id: "primary", selected: true },
+              { id: "team.calendar@example.com", selected: true },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
       if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events")) {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/team.calendar%40example.com/events")) {
         const authHeader = init?.headers ? new Headers(init.headers as HeadersInit).get("authorization") : null;
         if (authHeader !== "Bearer calendar-active-token") {
           return new Response("unauthorized", { status: 401 });
@@ -1336,9 +1355,9 @@ describe("future-diary-api", () => {
           JSON.stringify({
             items: [
               {
-                summary: "朝会",
-                start: { dateTime: "2026-02-07T09:00:00+09:00" },
-                end: { dateTime: "2026-02-07T09:30:00+09:00" },
+                summary: "設計ミーティング",
+                start: { dateTime: "2026-02-07T11:00:00+09:00" },
+                end: { dateTime: "2026-02-07T11:30:00+09:00" },
               },
             ],
           }),
@@ -1391,7 +1410,7 @@ describe("future-diary-api", () => {
       expect(response.status).toBe(200);
       expect(json.ok).toBe(true);
       expect(json.draft?.body).toContain("今日の予定メモ:");
-      expect(json.draft?.body).toContain("09:00-09:30 朝会");
+      expect(json.draft?.body).toContain("11:00-11:30 設計ミーティング");
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1672,7 +1691,26 @@ describe("future-diary-api", () => {
     globalThis.fetch = async (input, init) => {
       const url = input instanceof Request ? input.url : String(input);
 
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/users/me/calendarList")) {
+        return new Response(
+          JSON.stringify({
+            items: [
+              { id: "primary", selected: true },
+              { id: "team.calendar@example.com", selected: true },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
       if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events")) {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/team.calendar%40example.com/events")) {
         const authHeader = init?.headers ? new Headers(init.headers as HeadersInit).get("authorization") : null;
         if (authHeader !== "Bearer calendar-active-token") {
           return new Response("unauthorized", { status: 401 });

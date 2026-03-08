@@ -5,7 +5,8 @@ import {
 } from "@future-diary/db";
 
 const googleTokenEndpoint = "https://oauth2.googleapis.com/token";
-const googleCalendarEventsEndpoint = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
+const googleCalendarApiBase = "https://www.googleapis.com/calendar/v3";
+const googleCalendarListEndpoint = `${googleCalendarApiBase}/users/me/calendarList`;
 const defaultCalendarScope = "https://www.googleapis.com/auth/calendar.readonly";
 
 export class GoogleCalendarError extends Error {
@@ -47,6 +48,14 @@ type GoogleCalendarEventItem = {
     date?: string;
     dateTime?: string;
   };
+};
+
+type GoogleCalendarListItem = {
+  id?: string;
+  primary?: boolean;
+  selected?: boolean;
+  hidden?: boolean;
+  accessRole?: string;
 };
 
 const parseIsoDate = (isoDate: string): { year: number; month: number; day: number } | null => {
@@ -366,21 +375,87 @@ const toEventLine = (event: GoogleCalendarEventItem, timeZone: string): string |
   return `${range} ${title}${locationSuffix}`;
 };
 
-export const fetchGoogleCalendarScheduleLines = async (params: {
-  accessToken: string;
-  date: string;
-  timezone: string;
-  maxResults?: number;
-}): Promise<readonly string[]> => {
-  const { timeMin, timeMax } = buildDateWindow(params.date, params.timezone);
+const toEventSortKey = (event: GoogleCalendarEventItem): number => {
+  if (event.start?.dateTime) {
+    const parsed = Date.parse(event.start.dateTime);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
 
-  const url = new URL(googleCalendarEventsEndpoint);
+  if (event.start?.date) {
+    const parsed = Date.parse(`${event.start.date}T00:00:00Z`);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return Number.MAX_SAFE_INTEGER;
+};
+
+const fetchSelectedCalendarIds = async (params: {
+  accessToken: string;
+  maxCalendars: number;
+}): Promise<readonly string[]> => {
+  const url = new URL(googleCalendarListEndpoint);
+  url.searchParams.set("maxResults", "100");
+  url.searchParams.set("showHidden", "false");
+  url.searchParams.set("showDeleted", "false");
+  url.searchParams.set("minAccessRole", "reader");
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${params.accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new GoogleCalendarError(
+      "GOOGLE_CALENDAR_FETCH_FAILED",
+      `Google Calendar list request failed (${response.status})`,
+      response.status === 401 ? 401 : 502,
+    );
+  }
+
+  const json = (await response.json().catch(() => null)) as { items?: GoogleCalendarListItem[] } | null;
+  const items = Array.isArray(json?.items) ? json.items : [];
+
+  const ids = new Set<string>();
+  for (const item of items) {
+    const id = item.id?.trim();
+    if (!id) {
+      continue;
+    }
+    if (item.hidden === true) {
+      continue;
+    }
+    if (item.selected === false) {
+      continue;
+    }
+    ids.add(id);
+  }
+  ids.add("primary");
+
+  return [...ids].slice(0, Math.max(1, params.maxCalendars));
+};
+
+const fetchCalendarEventsById = async (params: {
+  accessToken: string;
+  calendarId: string;
+  timeMin: string;
+  timeMax: string;
+  timezone: string;
+  maxResults: number;
+}): Promise<readonly GoogleCalendarEventItem[]> => {
+  const eventsEndpoint = `${googleCalendarApiBase}/calendars/${encodeURIComponent(params.calendarId)}/events`;
+  const url = new URL(eventsEndpoint);
   url.searchParams.set("singleEvents", "true");
   url.searchParams.set("orderBy", "startTime");
-  url.searchParams.set("timeMin", timeMin);
-  url.searchParams.set("timeMax", timeMax);
+  url.searchParams.set("timeMin", params.timeMin);
+  url.searchParams.set("timeMax", params.timeMax);
   url.searchParams.set("timeZone", params.timezone);
-  url.searchParams.set("maxResults", String(params.maxResults ?? 20));
+  url.searchParams.set("maxResults", String(params.maxResults));
 
   let eventsResponse: Response;
   try {
@@ -407,11 +482,56 @@ export const fetchGoogleCalendarScheduleLines = async (params: {
   }
 
   const json = (await eventsResponse.json().catch(() => null)) as { items?: GoogleCalendarEventItem[] } | null;
-  const items = Array.isArray(json?.items) ? json.items : [];
-  const lines = items
+  return Array.isArray(json?.items) ? json.items : [];
+};
+
+export const fetchGoogleCalendarScheduleLines = async (params: {
+  accessToken: string;
+  date: string;
+  timezone: string;
+  maxResults?: number;
+}): Promise<readonly string[]> => {
+  const { timeMin, timeMax } = buildDateWindow(params.date, params.timezone);
+  const maxResults = params.maxResults ?? 20;
+
+  let calendarIds: readonly string[] = ["primary"];
+  try {
+    calendarIds = await fetchSelectedCalendarIds({
+      accessToken: params.accessToken,
+      maxCalendars: 8,
+    });
+  } catch {
+    // Fallback to primary if calendar list call fails (for transient/network reasons).
+    // Authentication errors are still surfaced by the primary events call below.
+    calendarIds = ["primary"];
+  }
+
+  const mergedItems: GoogleCalendarEventItem[] = [];
+  for (const calendarId of calendarIds) {
+    try {
+      const items = await fetchCalendarEventsById({
+        accessToken: params.accessToken,
+        calendarId,
+        timeMin,
+        timeMax,
+        timezone: params.timezone,
+        maxResults,
+      });
+      mergedItems.push(...items);
+    } catch (error) {
+      if (calendarId === "primary") {
+        throw error;
+      }
+      // Ignore non-primary calendar fetch failures and continue.
+    }
+  }
+
+  const lines = mergedItems
+    .sort((left, right) => toEventSortKey(left) - toEventSortKey(right))
     .map((item) => toEventLine(item, params.timezone))
     .filter((line): line is string => typeof line === "string" && line.length > 0)
-    .slice(0, 8);
+    .filter((line, index, arr) => arr.indexOf(line) === index)
+    .slice(0, maxResults);
 
   return lines;
 };
