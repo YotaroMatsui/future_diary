@@ -97,6 +97,15 @@ const processFutureDraftGenerate = async (params: {
       date,
       timezone,
     });
+    if (env.APP_ENV !== "production") {
+      console.log("[dev] Google Calendar schedules loaded in queue consumer", {
+        safetyIdentifier,
+        date,
+        timezone,
+        count: calendarScheduleLines.length,
+        lines: calendarScheduleLines,
+      });
+    }
   } catch (error) {
     console.warn("Google Calendar schedule fetch failed in queue consumer", {
       safetyIdentifier,

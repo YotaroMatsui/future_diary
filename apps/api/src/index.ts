@@ -1202,6 +1202,15 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
       date,
       timezone,
     });
+    if (context.env.APP_ENV !== "production") {
+      console.log("[dev] Google Calendar schedules loaded", {
+        safetyIdentifier,
+        date,
+        timezone,
+        count: calendarScheduleLines.length,
+        lines: calendarScheduleLines,
+      });
+    }
   } catch (error) {
     console.warn("Google Calendar schedule fetch failed; continue without schedule", {
       safetyIdentifier,
