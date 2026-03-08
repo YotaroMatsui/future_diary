@@ -31,6 +31,7 @@ export interface GenerateFutureDiaryInput {
   draftIntent: string;
   selfModelPromptContext: string;
   preferences: GenerationPreferences;
+  calendarScheduleLines?: readonly string[];
 }
 
 export interface FutureDiaryDraft {

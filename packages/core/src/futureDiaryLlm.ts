@@ -96,6 +96,11 @@ export const buildFutureDiaryDraftLlmUserPrompt = (input: GenerateFutureDiaryInp
   const closingCandidates = input.styleHints.closingPhrases.map((p) => `- ${p}`).join("\n");
   const intent = normalizeLine(input.draftIntent);
   const selfModelPromptContext = input.selfModelPromptContext.trim();
+  const calendarScheduleLines = (input.calendarScheduleLines ?? [])
+    .map((line) => normalizeLine(line))
+    .filter((line) => line.length > 0)
+    .map((line) => `- ${line}`)
+    .join("\n");
 
   return [
     "次の情報をもとに、未来日記（下書き）の本文を生成してください。",
@@ -118,6 +123,9 @@ export const buildFutureDiaryDraftLlmUserPrompt = (input: GenerateFutureDiaryInp
     "",
     "生成プリファレンス:",
     `- avoidCopyingFromFragments: ${input.preferences.avoidCopyingFromFragments ? "true" : "false"}`,
+    "",
+    "当日の予定（Google Calendar連携）:",
+    calendarScheduleLines.length > 0 ? calendarScheduleLines : "- (none)",
     "",
     "参照断片（過去の書記のキーワード。文章は引用しない）:",
     fragmentsText.length > 0 ? fragmentsText : "- (none)",

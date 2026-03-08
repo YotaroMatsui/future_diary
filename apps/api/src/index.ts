@@ -3,6 +3,8 @@ import {
   createAuthSessionRepository,
   createDiaryRepository,
   createDiaryRevisionRepository,
+  createGoogleCalendarConnectionRepository,
+  createGoogleCalendarOauthStateRepository,
   createUserIdentityRepository,
   createUserRepository,
 } from "@future-diary/db";
@@ -13,6 +15,11 @@ import { z } from "zod";
 import type { GenerationQueueMessage } from "./queueMessages";
 import { processGenerationQueueBatch } from "./generationQueueConsumer";
 import { generateFutureDiaryDraft } from "./futureDiaryDraftGeneration";
+import {
+  exchangeGoogleCalendarAuthorizationCode,
+  GoogleCalendarError,
+  loadGoogleCalendarScheduleLines,
+} from "./googleCalendar";
 import { enqueueGenerationMessage } from "./queueProducer";
 import { sha256Hex } from "./safetyIdentifier";
 import {
@@ -60,6 +67,16 @@ const googleAuthExchangeRequestSchema = z.object({
   redirectUri: z.string().url(),
   timezone: z.string().min(1).default("Asia/Tokyo"),
   legacyAccessToken: z.string().min(1).optional(),
+});
+
+const googleCalendarAuthStartRequestSchema = z.object({
+  redirectUri: z.string().url(),
+});
+
+const googleCalendarAuthExchangeRequestSchema = z.object({
+  code: z.string().min(1),
+  state: z.string().min(1),
+  redirectUri: z.string().url(),
 });
 
 const userModelUpdateRequestSchema = z.object({
@@ -216,6 +233,7 @@ const generateAccessToken = (byteLength = 32): string => {
 const googleAuthEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
 const googleTokenEndpoint = "https://oauth2.googleapis.com/token";
 const googleUserInfoEndpoint = "https://openidconnect.googleapis.com/v1/userinfo";
+const googleCalendarScope = "https://www.googleapis.com/auth/calendar.readonly";
 
 const toSqlDateTime = (date: Date): string => date.toISOString().slice(0, 19).replace("T", " ");
 
@@ -798,6 +816,7 @@ app.get("/v1/auth/me", requireAuth, async (context) => {
 
   const userRepo = createUserRepository(db);
   const identityRepo = createUserIdentityRepository(db);
+  const calendarConnectionRepo = createGoogleCalendarConnectionRepository(db);
   const user = await userRepo.findById(auth.userId);
 
   if (!user) {
@@ -814,6 +833,7 @@ app.get("/v1/auth/me", requireAuth, async (context) => {
   }
 
   const identity = await identityRepo.findByUserIdAndProvider(user.id, "google");
+  const calendarConnection = await calendarConnectionRepo.findByUserId(user.id);
 
   return context.json({
     ok: true,
@@ -825,6 +845,7 @@ app.get("/v1/auth/me", requireAuth, async (context) => {
       avatarUrl: identity?.avatarUrl ?? null,
       authProvider: identity ? "google" : "legacy",
       migrationRequired: auth.sessionKind === "legacy" && identity === null,
+      googleCalendarConnected: calendarConnection !== null,
     },
     session: {
       kind: auth.sessionKind,
@@ -851,6 +872,270 @@ app.post("/v1/auth/logout", requireAuth, async (context) => {
   const sessionRepo = createAuthSessionRepository(context.env.DB);
   await sessionRepo.revokeSession(auth.sessionId);
   return context.json({ ok: true });
+});
+
+app.post("/v1/integrations/google-calendar/start", requireAuth, async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = googleCalendarAuthStartRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const clientId = context.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
+  if (!clientId) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "GOOGLE_OAUTH_CLIENT_ID is required",
+        },
+      },
+      500,
+    );
+  }
+
+  if (!isSafeRedirectUri(parsed.data.redirectUri, context.req.header("origin") ?? undefined)) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "INVALID_REDIRECT_URI",
+          message: "redirectUri is not allowed",
+        },
+      },
+      400,
+    );
+  }
+
+  const auth = context.get("auth") as AuthContext;
+  const oauthStateRepo = createGoogleCalendarOauthStateRepository(context.env.DB);
+  const state = generateAccessToken(24);
+  const codeVerifier = generateAccessToken(48);
+  const codeChallenge = await sha256Base64Url(codeVerifier);
+  const expiresAt = addMsToNowSqlDateTime(10 * 60 * 1000);
+
+  await oauthStateRepo.createState({
+    state,
+    userId: auth.userId,
+    codeVerifier,
+    redirectUri: parsed.data.redirectUri,
+    expiresAt,
+  });
+
+  const executionCtx = getOptionalExecutionContext(context);
+  if (executionCtx?.waitUntil) {
+    executionCtx.waitUntil(oauthStateRepo.deleteExpiredStates().catch(() => undefined));
+  }
+
+  const authorizationUrl = new URL(googleAuthEndpoint);
+  authorizationUrl.searchParams.set("client_id", clientId);
+  authorizationUrl.searchParams.set("redirect_uri", parsed.data.redirectUri);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("scope", googleCalendarScope);
+  authorizationUrl.searchParams.set("state", state);
+  authorizationUrl.searchParams.set("code_challenge", codeChallenge);
+  authorizationUrl.searchParams.set("code_challenge_method", "S256");
+  authorizationUrl.searchParams.set("access_type", "offline");
+  authorizationUrl.searchParams.set("include_granted_scopes", "true");
+  authorizationUrl.searchParams.set("prompt", "consent select_account");
+
+  return context.json({
+    ok: true,
+    authorizationUrl: authorizationUrl.toString(),
+    stateExpiresAt: expiresAt,
+  });
+});
+
+app.post("/v1/integrations/google-calendar/exchange", requireAuth, async (context) => {
+  const payload = await context.req.json().catch(() => null);
+  const parsed = googleCalendarAuthExchangeRequestSchema.safeParse(payload);
+
+  if (!parsed.success) {
+    return context.json(
+      {
+        ok: false,
+        errors: parsed.error.issues.map((issue) => ({
+          path: issue.path.join("."),
+          message: issue.message,
+        })),
+      },
+      400,
+    );
+  }
+
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const auth = context.get("auth") as AuthContext;
+  const oauthStateRepo = createGoogleCalendarOauthStateRepository(context.env.DB);
+  const oauthState = await oauthStateRepo.consumeState(parsed.data.state, auth.userId);
+
+  if (!oauthState || oauthState.redirectUri !== parsed.data.redirectUri) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "INVALID_OAUTH_STATE",
+          message: "Google Calendar OAuth state is invalid or expired",
+        },
+      },
+      400,
+    );
+  }
+
+  let exchangedToken: Awaited<ReturnType<typeof exchangeGoogleCalendarAuthorizationCode>>;
+  try {
+    exchangedToken = await exchangeGoogleCalendarAuthorizationCode({
+      env: context.env,
+      code: parsed.data.code,
+      redirectUri: parsed.data.redirectUri,
+      codeVerifier: oauthState.codeVerifier,
+    });
+  } catch (error) {
+    if (error instanceof GoogleCalendarError) {
+      const status = error.status === 401 || error.status === 500 ? error.status : 502;
+      return context.json(
+        {
+          ok: false,
+          error: {
+            type: error.type,
+            message: error.message,
+          },
+        },
+        status,
+      );
+    }
+
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GOOGLE_TOKEN_EXCHANGE_FAILED",
+          message: error instanceof Error ? error.message : "Google token exchange failed",
+        },
+      },
+      502,
+    );
+  }
+
+  const connectionRepo = createGoogleCalendarConnectionRepository(context.env.DB);
+  const existingConnection = await connectionRepo.findByUserId(auth.userId);
+  const refreshToken = exchangedToken.refreshToken ?? existingConnection?.refreshToken ?? null;
+
+  if (!refreshToken) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "GOOGLE_REFRESH_TOKEN_MISSING",
+          message: "Google refresh token is missing. Retry connection with consent prompt.",
+        },
+      },
+      409,
+    );
+  }
+
+  const connection = await connectionRepo.upsertConnection({
+    userId: auth.userId,
+    accessToken: exchangedToken.accessToken,
+    refreshToken,
+    accessTokenExpiresAt: exchangedToken.accessTokenExpiresAt,
+    scope: exchangedToken.scope,
+  });
+
+  return context.json({
+    ok: true,
+    connected: true,
+    connection: {
+      scope: connection.scope,
+      accessTokenExpiresAt: connection.accessTokenExpiresAt,
+    },
+  });
+});
+
+app.get("/v1/integrations/google-calendar/status", requireAuth, async (context) => {
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const auth = context.get("auth") as AuthContext;
+  const connectionRepo = createGoogleCalendarConnectionRepository(context.env.DB);
+  const connection = await connectionRepo.findByUserId(auth.userId);
+
+  return context.json({
+    ok: true,
+    connected: connection !== null,
+    connection:
+      connection === null
+        ? null
+        : {
+            scope: connection.scope,
+            accessTokenExpiresAt: connection.accessTokenExpiresAt,
+          },
+  });
+});
+
+app.post("/v1/integrations/google-calendar/disconnect", requireAuth, async (context) => {
+  if (!context.env?.DB) {
+    return context.json(
+      {
+        ok: false,
+        error: {
+          type: "MISSING_BINDING",
+          message: "D1 binding 'DB' is required",
+        },
+      },
+      500,
+    );
+  }
+
+  const auth = context.get("auth") as AuthContext;
+  const connectionRepo = createGoogleCalendarConnectionRepository(context.env.DB);
+  await connectionRepo.deleteByUserId(auth.userId);
+  return context.json({ ok: true, disconnected: true });
 });
 
 app.post("/v1/future-diary/draft", requireAuth, async (context) => {
@@ -899,12 +1184,28 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
   const parsedModel = parseUserModelJson(user?.preferencesJson);
   const userModel = parsedModel.ok ? parsedModel.value : defaultUserModel;
   const generationUserModelJson = serializeUserModelJson(userModel);
+  let calendarScheduleLines: readonly string[] = [];
 
   if (!parsedModel.ok) {
     console.warn("User model parse failed; falling back to default", {
       safetyIdentifier,
       errorType: parsedModel.error.type,
       message: parsedModel.error.message,
+    });
+  }
+
+  try {
+    calendarScheduleLines = await loadGoogleCalendarScheduleLines({
+      env: context.env,
+      db,
+      userId,
+      date,
+      timezone,
+    });
+  } catch (error) {
+    console.warn("Google Calendar schedule fetch failed; continue without schedule", {
+      safetyIdentifier,
+      message: error instanceof Error ? error.message : String(error),
     });
   }
 
@@ -964,6 +1265,7 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
             date,
             timezone,
             safetyIdentifier,
+            calendarScheduleLines,
           });
 
           source = generated.source;

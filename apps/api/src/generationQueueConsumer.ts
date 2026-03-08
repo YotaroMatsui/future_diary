@@ -3,6 +3,7 @@ import { defaultUserModel, parseUserModelJson, serializeUserModelJson } from "@f
 import { upsertVectorizeSearchDocumentsWithWorkersAi } from "@future-diary/vector";
 import { acquireDraftGenerationLock, releaseDraftGenerationLock } from "./draftGenerationLock";
 import { generateFutureDiaryDraft } from "./futureDiaryDraftGeneration";
+import { loadGoogleCalendarScheduleLines } from "./googleCalendar";
 import { isGenerationQueueMessage, type GenerationQueueMessage } from "./queueMessages";
 import { enqueueGenerationMessage, type QueueProducerBindings } from "./queueProducer";
 import { sha256Hex } from "./safetyIdentifier";
@@ -11,6 +12,8 @@ import { getWorkersAiEmbeddingModel } from "./vectorize";
 export type GenerationQueueConsumerEnv = QueueProducerBindings & {
   APP_ENV?: string;
   DB?: D1Database;
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
   AI?: Ai;
   VECTOR_INDEX?: Vectorize;
   AI_EMBEDDING_MODEL?: string;
@@ -76,12 +79,28 @@ const processFutureDraftGenerate = async (params: {
   const parsedModel = parseUserModelJson(user?.preferencesJson);
   const userModel = parsedModel.ok ? parsedModel.value : defaultUserModel;
   const generationUserModelJson = serializeUserModelJson(userModel);
+  let calendarScheduleLines: readonly string[] = [];
 
   if (!parsedModel.ok) {
     console.warn("User model parse failed; falling back to default", {
       safetyIdentifier,
       errorType: parsedModel.error.type,
       message: parsedModel.error.message,
+    });
+  }
+
+  try {
+    calendarScheduleLines = await loadGoogleCalendarScheduleLines({
+      env,
+      db,
+      userId,
+      date,
+      timezone,
+    });
+  } catch (error) {
+    console.warn("Google Calendar schedule fetch failed in queue consumer", {
+      safetyIdentifier,
+      message: error instanceof Error ? error.message : String(error),
     });
   }
 
@@ -130,6 +149,7 @@ const processFutureDraftGenerate = async (params: {
       date,
       timezone,
       safetyIdentifier,
+      calendarScheduleLines,
     });
 
     const completed = await diaryRepo.completeDraftGeneration({

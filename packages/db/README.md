@@ -1,6 +1,6 @@
 # packages/db
 
-`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `DiaryRevisionRepository` / `UserRepository` / `AuthSessionRepository` / `UserIdentityRepository` / `AuthOauthStateRepository` を提供し、`packages/core::DiaryEntry` への変換と diary/revision/user/auth の read/write クエリを担当する。スキーマ契約は `src/migrations/*.sql` と `src/schema.ts` が SSOT。
+`packages/db/src/repository.ts` は D1 境界として `DiaryRepository` / `DiaryRevisionRepository` / `UserRepository` / `AuthSessionRepository` / `UserIdentityRepository` / `AuthOauthStateRepository` / `GoogleCalendarConnectionRepository` / `GoogleCalendarOauthStateRepository` を提供し、`packages/core::DiaryEntry` への変換と diary/revision/user/auth/integration の read/write クエリを担当する。スキーマ契約は `src/migrations/*.sql` と `src/schema.ts` が SSOT。
 
 - パス: `packages/db/README.md`
 - 状態: Implemented
@@ -37,7 +37,8 @@
 - `findById` / `deleteUser` を提供する。
 - `AuthSessionRepository` を提供する（session_kind / expires_at / revoked_at を含む）。
 - `UserIdentityRepository` と `AuthOauthStateRepository` を提供する（Google identity / OAuth state 管理）。
-- migration SQL で `users` / `diary_entries` / `diary_entry_revisions` / `auth_sessions` / `user_identities` / `auth_oauth_states` を定義する。
+- `GoogleCalendarConnectionRepository` / `GoogleCalendarOauthStateRepository` を提供する（Google Calendar token / OAuth state 管理）。
+- migration SQL で `users` / `diary_entries` / `diary_entry_revisions` / `auth_sessions` / `user_identities` / `auth_oauth_states` / `google_calendar_connections` / `google_calendar_oauth_states` を定義する。
 
 <details><summary>根拠（Evidence）</summary>
 
@@ -122,6 +123,8 @@
   - `createAuthSessionRepository`
   - `createUserIdentityRepository`
   - `createAuthOauthStateRepository`
+  - `createGoogleCalendarConnectionRepository`
+  - `createGoogleCalendarOauthStateRepository`
   - `DiaryRow` / `UserRow`
   - `DiaryEntryRevisionRow`
   - `AuthSessionRow`
@@ -139,6 +142,8 @@
 | `createAuthSessionRepository` | function | `src/repository.ts` | D1 auth session | `packages/db/src/repository.ts:367` |
 | `createUserIdentityRepository` | function | `src/repository.ts` | D1 identity read/write | `packages/db/src/repository.ts` |
 | `createAuthOauthStateRepository` | function | `src/repository.ts` | D1 OAuth state read/write | `packages/db/src/repository.ts` |
+| `createGoogleCalendarConnectionRepository` | function | `src/repository.ts` | D1 Google Calendar token read/write | `packages/db/src/repository.ts` |
+| `createGoogleCalendarOauthStateRepository` | function | `src/repository.ts` | D1 Google Calendar OAuth state read/write | `packages/db/src/repository.ts` |
 | `DiaryRow`              | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:9`                   |
 | `UserRow`               | interface | `src/schema.ts`     | row契約           | `packages/db/src/schema.ts:30`                  |
 | `DiaryEntryRevisionRow` | interface | `src/schema.ts`     | revision row契約  | `packages/db/src/schema.ts:22`                  |
@@ -149,6 +154,7 @@
 | `0003_auth_sessions.sql` | migration | `src/migrations`    | auth session追加  | `packages/db/src/migrations/0003_auth_sessions.sql:1` |
 | `0004_generation_status.sql` | migration | `src/migrations` | generation status追加 | `packages/db/src/migrations/0004_generation_status.sql:1` |
 | `0006_google_auth_identity.sql` | migration | `src/migrations` | Google auth identity/session 拡張 | `packages/db/src/migrations/0006_google_auth_identity.sql:1` |
+| `0007_google_calendar_connections.sql` | migration | `src/migrations` | Google Calendar connection/state 拡張 | `packages/db/src/migrations/0007_google_calendar_connections.sql:1` |
 
 ### 使い方（必須）
 

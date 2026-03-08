@@ -18,9 +18,11 @@ export const App = () => {
         <AppHeader
           appPath={app.appPath}
           session={app.session}
+          googleCalendarConnected={app.googleCalendarConnected}
           authLoading={app.authLoading}
           bootstrapping={app.bootstrapping}
           onStartGoogleAuth={app.startGoogleAuth}
+          onStartGoogleCalendarAuth={app.startGoogleCalendarAuth}
           onLogout={app.logout}
           onNavigate={(path) => {
             if (path === appPaths.reflection) {

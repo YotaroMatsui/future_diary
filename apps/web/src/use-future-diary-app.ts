@@ -3,6 +3,7 @@ import {
   type AuthMeResponse,
   type UserModel,
   deleteDiaryEntry,
+  exchangeGoogleCalendarAuth,
   exchangeGoogleAuth,
   fetchAuthMe,
   fetchFutureDiaryDraft,
@@ -11,6 +12,7 @@ import {
   logout as logoutApi,
   resetUserModel,
   saveDiaryEntry,
+  startGoogleCalendarAuth,
   startGoogleAuth,
   updateUserModel,
 } from "./api";
@@ -46,8 +48,19 @@ type GoogleAuthExchangePayload = {
 };
 
 type GoogleAuthExchangeResult = Awaited<ReturnType<typeof exchangeGoogleAuth>>;
+type GoogleCalendarAuthExchangeResult = Awaited<ReturnType<typeof exchangeGoogleCalendarAuth>>;
 
 const inFlightGoogleAuthExchange = new Map<string, Promise<GoogleAuthExchangeResult>>();
+const inFlightGoogleCalendarExchange = new Map<string, Promise<GoogleCalendarAuthExchangeResult>>();
+
+type PendingOauthFlow = "google-auth" | "google-calendar";
+
+const parsePendingOauthFlow = (value: string | null): PendingOauthFlow | null => {
+  if (value === "google-auth" || value === "google-calendar") {
+    return value;
+  }
+  return null;
+};
 
 const exchangeGoogleAuthOnce = async (payload: GoogleAuthExchangePayload): Promise<GoogleAuthExchangeResult> => {
   const key = `${payload.state}:${payload.code}:${payload.redirectUri}`;
@@ -63,9 +76,27 @@ const exchangeGoogleAuthOnce = async (payload: GoogleAuthExchangePayload): Promi
   return await request;
 };
 
+const exchangeGoogleCalendarAuthOnce = async (params: {
+  accessToken: string;
+  payload: { code: string; state: string; redirectUri: string };
+}): Promise<GoogleCalendarAuthExchangeResult> => {
+  const key = `${params.payload.state}:${params.payload.code}:${params.payload.redirectUri}`;
+  const existing = inFlightGoogleCalendarExchange.get(key);
+  if (existing) {
+    return await existing;
+  }
+
+  const request = exchangeGoogleCalendarAuth(apiBaseUrl, params.accessToken, params.payload).finally(() => {
+    inFlightGoogleCalendarExchange.delete(key);
+  });
+  inFlightGoogleCalendarExchange.set(key, request);
+  return await request;
+};
+
 export type FutureDiaryAppModel = {
   appPath: AppPath;
   session: SessionState | null;
+  googleCalendarConnected: boolean;
   bootstrapping: boolean;
   authLoading: boolean;
   reflectionModel: UserModel | null;
@@ -88,6 +119,7 @@ export type FutureDiaryAppModel = {
   navigateToDiary: () => void;
   navigateToReflection: () => void;
   startGoogleAuth: () => Promise<void>;
+  startGoogleCalendarAuth: () => Promise<void>;
   logout: () => Promise<void>;
   focusEditor: () => void;
   blurEditor: () => Promise<void>;
@@ -250,6 +282,7 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
   const clearSession = useCallback(() => {
     writeLocalStorageString(storageKeys.accessToken, "");
     writeLocalStorageString(storageKeys.timezone, "");
+    writeLocalStorageString(storageKeys.oauthFlow, "");
     setSession(null);
     setReflectionModel(null);
     setReflectionInsight(null);
@@ -583,6 +616,7 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
 
       const storedToken = readLocalStorageString(storageKeys.accessToken);
       const storedTimezone = readLocalStorageString(storageKeys.timezone) ?? detectBrowserTimezone();
+      const pendingOauthFlow = parsePendingOauthFlow(readLocalStorageString(storageKeys.oauthFlow));
       const currentUrl = new URL(window.location.href);
       const code = currentUrl.searchParams.get("code");
       const state = currentUrl.searchParams.get("state");
@@ -592,6 +626,34 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
           setAuthLoading(true);
 
           const redirectUri = resolveGoogleAuthRedirectUri(currentUrl);
+          if (pendingOauthFlow === "google-calendar") {
+            if (!storedToken) {
+              throw new Error("Google Calendar 連携にはログイン済みセッションが必要です。");
+            }
+
+            await exchangeGoogleCalendarAuthOnce({
+              accessToken: storedToken,
+              payload: {
+                code,
+                state,
+                redirectUri,
+              },
+            });
+
+            writeLocalStorageString(storageKeys.oauthFlow, "");
+            const hydrated = await hydrateSessionByAccessToken(storedToken, storedTimezone);
+            if (!alive) {
+              return;
+            }
+
+            if (!hydrated) {
+              throw new Error("Google Calendar 連携後のセッション復元に失敗しました。再ログインしてください。");
+            }
+
+            navigate(appPaths.diary, true);
+            return;
+          }
+
           const exchanged = await exchangeGoogleAuthOnce({
             code,
             state,
@@ -613,9 +675,11 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
             avatarUrl: exchanged.user.avatarUrl,
             authProvider: exchanged.user.authProvider,
             migrationRequired: false,
+            googleCalendarConnected: false,
           };
 
           persistSession(exchanged.accessToken, timezone);
+          writeLocalStorageString(storageKeys.oauthFlow, "");
           setSession({
             accessToken: exchanged.accessToken,
             timezone,
@@ -648,6 +712,7 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
         navigate(appPaths.login, true);
       } catch (error) {
         if (alive) {
+          writeLocalStorageString(storageKeys.oauthFlow, "");
           setErrorMessage(toErrorMessage(error));
           navigate(appPaths.login, true);
         }
@@ -747,13 +812,35 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
 
     try {
       const redirectUri = resolveGoogleAuthRedirectUri(new URL(window.location.href));
+      writeLocalStorageString(storageKeys.oauthFlow, "google-auth");
       const started = await startGoogleAuth(apiBaseUrl, { redirectUri });
       window.location.assign(started.authorizationUrl);
     } catch (error) {
+      writeLocalStorageString(storageKeys.oauthFlow, "");
       setErrorMessage(toErrorMessage(error));
       setAuthLoading(false);
     }
   }, []);
+
+  const startGoogleCalendarAuthFlow = useCallback(async () => {
+    if (!session) {
+      return;
+    }
+
+    setAuthLoading(true);
+    setErrorMessage(null);
+
+    try {
+      const redirectUri = resolveGoogleAuthRedirectUri(new URL(window.location.href));
+      writeLocalStorageString(storageKeys.oauthFlow, "google-calendar");
+      const started = await startGoogleCalendarAuth(apiBaseUrl, session.accessToken, { redirectUri });
+      window.location.assign(started.authorizationUrl);
+    } catch (error) {
+      writeLocalStorageString(storageKeys.oauthFlow, "");
+      setErrorMessage(toErrorMessage(error));
+      setAuthLoading(false);
+    }
+  }, [session]);
 
   const logout = useCallback(async () => {
     if (!session) {
@@ -990,6 +1077,7 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
   return {
     appPath,
     session,
+    googleCalendarConnected: session?.user.googleCalendarConnected ?? false,
     bootstrapping,
     authLoading,
     reflectionModel,
@@ -1012,6 +1100,7 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
     navigateToDiary,
     navigateToReflection,
     startGoogleAuth: startGoogleAuthFlow,
+    startGoogleCalendarAuth: startGoogleCalendarAuthFlow,
     logout,
     focusEditor,
     blurEditor,
