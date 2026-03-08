@@ -64,6 +64,28 @@ type GoogleCalendarListResponse = {
   nextPageToken?: string;
 };
 
+type GoogleApiErrorReason = {
+  reason?: string;
+  message?: string;
+};
+
+type GoogleApiErrorDetail = {
+  reason?: string;
+  metadata?: {
+    service?: string;
+  };
+};
+
+type GoogleApiErrorResponse = {
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+    errors?: GoogleApiErrorReason[];
+    details?: GoogleApiErrorDetail[];
+  };
+};
+
 const parseIsoDate = (isoDate: string): { year: number; month: number; day: number } | null => {
   const match = isoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) {
@@ -130,6 +152,54 @@ const toTokenExpiryIso = (expiresInSeconds: number | undefined): string => {
     : 3600;
 
   return new Date(Date.now() + seconds * 1000).toISOString();
+};
+
+const parseGoogleApiErrorResponse = async (response: Response): Promise<GoogleApiErrorResponse | null> => {
+  return (await response.json().catch(() => null)) as GoogleApiErrorResponse | null;
+};
+
+const isCalendarApiDisabledError = (status: number, error: GoogleApiErrorResponse | null): boolean => {
+  if (status !== 403) {
+    return false;
+  }
+
+  const reason = error?.error?.errors?.find((item) => item.reason?.trim())?.reason?.trim();
+  if (reason === "accessNotConfigured") {
+    return true;
+  }
+
+  const details = error?.error?.details ?? [];
+  return details.some(
+    (detail) => detail.reason === "SERVICE_DISABLED" && detail.metadata?.service === "calendar-json.googleapis.com",
+  );
+};
+
+const toGoogleApiErrorMessage = (fallback: string, error: GoogleApiErrorResponse | null): string => {
+  const apiMessage = error?.error?.message?.trim();
+  return apiMessage && apiMessage.length > 0 ? apiMessage : fallback;
+};
+
+const throwGoogleCalendarFetchError = (params: {
+  status: number;
+  fallbackMessage: string;
+  error: GoogleApiErrorResponse | null;
+}): never => {
+  if (isCalendarApiDisabledError(params.status, params.error)) {
+    throw new GoogleCalendarError(
+      "GOOGLE_CALENDAR_API_DISABLED",
+      toGoogleApiErrorMessage(
+        "Google Calendar API is disabled for the configured Google Cloud project. Enable calendar-json.googleapis.com.",
+        params.error,
+      ),
+      502,
+    );
+  }
+
+  throw new GoogleCalendarError(
+    "GOOGLE_CALENDAR_FETCH_FAILED",
+    toGoogleApiErrorMessage(params.fallbackMessage, params.error),
+    params.status === 401 ? 401 : 502,
+  );
 };
 
 export const exchangeGoogleCalendarAuthorizationCode = async (params: {
@@ -452,11 +522,12 @@ const fetchVisibleCalendarIds = async (params: {
     });
 
     if (!response.ok) {
-      throw new GoogleCalendarError(
-        "GOOGLE_CALENDAR_FETCH_FAILED",
-        `Google Calendar list request failed (${response.status})`,
-        response.status === 401 ? 401 : 502,
-      );
+      const error = await parseGoogleApiErrorResponse(response);
+      throwGoogleCalendarFetchError({
+        status: response.status,
+        fallbackMessage: `Google Calendar list request failed (${response.status})`,
+        error,
+      });
     }
 
     const json = (await response.json().catch(() => null)) as GoogleCalendarListResponse | null;
@@ -515,11 +586,12 @@ const fetchCalendarEventsById = async (params: {
   }
 
   if (!eventsResponse.ok) {
-    throw new GoogleCalendarError(
-      "GOOGLE_CALENDAR_FETCH_FAILED",
-      `Google Calendar events request failed (${eventsResponse.status})`,
-      eventsResponse.status === 401 ? 401 : 502,
-    );
+    const error = await parseGoogleApiErrorResponse(eventsResponse);
+    throwGoogleCalendarFetchError({
+      status: eventsResponse.status,
+      fallbackMessage: `Google Calendar events request failed (${eventsResponse.status})`,
+      error,
+    });
   }
 
   const json = (await eventsResponse.json().catch(() => null)) as { items?: GoogleCalendarEventItem[] } | null;

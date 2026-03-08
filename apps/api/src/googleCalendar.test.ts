@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { fetchGoogleCalendarScheduleLines } from "./googleCalendar";
+import { fetchGoogleCalendarScheduleLines, GoogleCalendarError } from "./googleCalendar";
 
 describe("googleCalendar schedule fetch", () => {
   const originalFetch = globalThis.fetch;
@@ -65,5 +65,68 @@ describe("googleCalendar schedule fetch", () => {
 
     expect(calendarListShowHidden).toBe("true");
     expect(lines).toContain("00:30-01:00 深夜作業");
+  });
+
+  test("throws GOOGLE_CALENDAR_API_DISABLED when Google project calendar api is disabled", async () => {
+    globalThis.fetch = async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/users/me/calendarList")) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 403,
+              message: "Google Calendar API has not been used in project 848080562572 before or it is disabled.",
+              errors: [{ reason: "accessNotConfigured" }],
+              status: "PERMISSION_DENIED",
+              details: [
+                {
+                  reason: "SERVICE_DISABLED",
+                  metadata: {
+                    service: "calendar-json.googleapis.com",
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 403, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      if (url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events")) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 403,
+              message: "Google Calendar API has not been used in project 848080562572 before or it is disabled.",
+              errors: [{ reason: "accessNotConfigured" }],
+              status: "PERMISSION_DENIED",
+              details: [
+                {
+                  reason: "SERVICE_DISABLED",
+                  metadata: {
+                    service: "calendar-json.googleapis.com",
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 403, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      return new Response("unexpected", { status: 404 });
+    };
+
+    try {
+      await fetchGoogleCalendarScheduleLines({
+        accessToken: "test-access-token",
+        date: "2026-03-09",
+        timezone: "Asia/Tokyo",
+      });
+      throw new Error("Expected fetchGoogleCalendarScheduleLines to throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(GoogleCalendarError);
+      expect((error as GoogleCalendarError).type).toBe("GOOGLE_CALENDAR_API_DISABLED");
+    }
   });
 });

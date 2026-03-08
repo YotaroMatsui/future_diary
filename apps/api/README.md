@@ -38,7 +38,7 @@
 - `OPENAI_API_KEY` が設定されている場合は外部LLMで draft 本文を生成する（失敗時は deterministic/fallback へフォールバック）。
 - `AI` + `VECTOR_INDEX` binding が設定されている場合は、Workers AI embeddings + Vectorize による retrieval/upsert を行う（失敗時は D1 の直近日記へフォールバック）。
 - ユーザーモデル（style/intent/preferences/reflection）を `users.preferences_json` に保存し、生成に利用する（`/v1/user/model*` で取得/更新/初期化）。
-- `POST /v1/future-diary/draft` の `meta` には debug 用に `calendarScheduleLines` / `calendarScheduleApplied` を含める。
+- `POST /v1/future-diary/draft` の `meta` には debug 用に `calendarScheduleLines` / `calendarScheduleApplied` / `calendarScheduleError` を含める。
 - 生成済み下書きで `final_text` が無く予定段落が未反映の場合、レスポンス時に予定段落をオーバーレイして返す（編集保存で確定可能）。
 - 同一 user/day の重複実行は Durable Object lock で抑止する。
 - 過去データが無い場合でも編集可能な fallback draft を返す。

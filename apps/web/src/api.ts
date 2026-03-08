@@ -190,6 +190,10 @@ export type FutureDiaryDraftResponse = {
     };
     calendarScheduleLines: readonly string[];
     calendarScheduleApplied: boolean;
+    calendarScheduleError: null | {
+      type: string;
+      message: string;
+    };
     pollAfterMs: number;
   };
 };

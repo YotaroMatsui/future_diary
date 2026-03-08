@@ -1417,6 +1417,95 @@ describe("future-diary-api", () => {
     }
   });
 
+  test("POST /v1/future-diary/draft exposes calendar error meta when Google Calendar API is disabled", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (
+        url.startsWith("https://www.googleapis.com/calendar/v3/users/me/calendarList") ||
+        url.startsWith("https://www.googleapis.com/calendar/v3/calendars/primary/events")
+      ) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 403,
+              message: "Google Calendar API has not been used in project 848080562572 before or it is disabled.",
+              errors: [{ reason: "accessNotConfigured" }],
+              status: "PERMISSION_DENIED",
+              details: [
+                {
+                  reason: "SERVICE_DISABLED",
+                  metadata: {
+                    service: "calendar-json.googleapis.com",
+                  },
+                },
+              ],
+            },
+          }),
+          { status: 403, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      return await originalFetch(input);
+    };
+
+    try {
+      const db = createInMemoryD1();
+      const env = { DB: db as unknown as D1Database };
+      const accessToken = await createAuthSession(env);
+
+      const meResponse = await app.request(
+        "/v1/auth/me",
+        {
+          headers: authJsonHeaders(accessToken),
+        },
+        env,
+      );
+      const meJson = (await meResponse.json()) as { user?: { id?: string } };
+      const userId = meJson.user?.id;
+      if (!userId) {
+        throw new Error("Failed to resolve user id");
+      }
+
+      db.__data.googleCalendarConnections.set(userId, {
+        user_id: userId,
+        access_token: "calendar-active-token",
+        refresh_token: "calendar-refresh-token",
+        access_token_expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        scope: "https://www.googleapis.com/auth/calendar.readonly",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      const response = await app.request(
+        "/v1/future-diary/draft",
+        {
+          method: "POST",
+          body: JSON.stringify({ date: "2026-03-09", timezone: "Asia/Tokyo" }),
+          headers: authJsonHeaders(accessToken),
+        },
+        env,
+      );
+
+      const json = (await response.json()) as {
+        ok?: boolean;
+        meta?: {
+          calendarScheduleLines?: readonly string[];
+          calendarScheduleApplied?: boolean;
+          calendarScheduleError?: null | { type?: string; message?: string };
+        };
+      };
+      expect(response.status).toBe(200);
+      expect(json.ok).toBe(true);
+      expect(json.meta?.calendarScheduleLines).toEqual([]);
+      expect(json.meta?.calendarScheduleApplied).toBe(false);
+      expect(json.meta?.calendarScheduleError?.type).toBe("GOOGLE_CALENDAR_API_DISABLED");
+      expect(json.meta?.calendarScheduleError?.message).toContain("Google Calendar API has not been used");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("POST /v1/future-diary/draft enqueues async generation when queue binding exists", async () => {
     const db = createInMemoryD1();
     const sent: unknown[] = [];

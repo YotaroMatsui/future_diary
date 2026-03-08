@@ -1203,6 +1203,7 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
   const userModel = parsedModel.ok ? parsedModel.value : defaultUserModel;
   const generationUserModelJson = serializeUserModelJson(userModel);
   let calendarScheduleLines: readonly string[] = [];
+  let calendarScheduleError: { type: string; message: string } | null = null;
 
   if (!parsedModel.ok) {
     console.warn("User model parse failed; falling back to default", {
@@ -1230,8 +1231,12 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
       });
     }
   } catch (error) {
+    if (error instanceof GoogleCalendarError) {
+      calendarScheduleError = { type: error.type, message: error.message };
+    }
     console.warn("Google Calendar schedule fetch failed; continue without schedule", {
       safetyIdentifier,
+      type: error instanceof GoogleCalendarError ? error.type : "UNKNOWN",
       message: error instanceof Error ? error.message : String(error),
     });
   }
@@ -1386,6 +1391,7 @@ app.post("/v1/future-diary/draft", requireAuth, async (context) => {
       },
       calendarScheduleLines: normalizedCalendarScheduleLines,
       calendarScheduleApplied,
+      calendarScheduleError,
       pollAfterMs: entry.generationStatus === "completed" ? 0 : 1500,
     },
   });

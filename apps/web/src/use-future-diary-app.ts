@@ -557,6 +557,7 @@ export const useFutureDiaryApp = (): FutureDiaryAppModel => {
             generationStatus: response.meta.generationStatus,
             applied: response.meta.calendarScheduleApplied,
             lines: response.meta.calendarScheduleLines,
+            error: response.meta.calendarScheduleError,
           });
         }
 
